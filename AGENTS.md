@@ -2,7 +2,10 @@
 
 ## 项目结构与模块组织
 
-- `src/routes/`：页面与布局（SvelteKit）。主要入口：`src/routes/+page.svelte`（左侧 Markdown 编辑，右侧 PDF 预览）。
+- `src/routes/`：页面与布局（SvelteKit）。
+  - `src/routes/+page.svelte`：语言选择与根路径跳转。
+  - `src/routes/[lang]/+page.svelte`：主界面（左侧 Markdown 编辑，右侧 PDF 预览）。
+- `src/lib/i18n/`：多语言与路由参数（如 `src/lib/i18n/lang.ts`）。
 - `src/lib/pipeline/`：转换管线（Markdown AST → Typst 文本），核心：`src/lib/pipeline/markdownToTypst.ts`。
 - `src/lib/typst/`：Typst 排版方案（模板化样式与正文解耦）。
   - `src/lib/typst/styles/modern-tech.typ`：现代科技风。

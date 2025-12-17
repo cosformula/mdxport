@@ -32,6 +32,20 @@ const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobal
 let compilerPromise: Promise<TypstCompiler> | null = null;
 let compileQueue: Promise<void> = Promise.resolve();
 
+const EXTRA_FONTS: string[] = [
+	// Sans (Latin) for modern headings/body
+	'https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/IBMPlexSans-Regular.ttf',
+	'https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/IBMPlexSans-Medium.ttf',
+	'https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/IBMPlexSans-Bold.ttf',
+
+	// Bold for CJK serif (better emphasis in classic style)
+	'https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/NotoSerifCJKsc-Bold.otf',
+
+	// Sans CJK (Simplified Chinese)
+	'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf',
+	'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Bold.otf'
+];
+
 function getCompiler(): Promise<TypstCompiler> {
 	if (compilerPromise) return compilerPromise;
 
@@ -40,7 +54,7 @@ function getCompiler(): Promise<TypstCompiler> {
 		await compiler.init({
 			getModule: () => typstCompilerWasmUrl,
 			beforeBuild: [
-				loadFonts([], {
+				loadFonts(EXTRA_FONTS, {
 					assets: ['text', 'cjk']
 				})
 			]

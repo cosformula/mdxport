@@ -47,7 +47,7 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 
 	const title = options.title ?? frontmatter.title ?? leadingTitle ?? '';
 	const authors = options.authors ?? frontmatter.authors ?? [];
-	const lang = options.lang ?? coerceLanguage(frontmatter.lang) ?? 'zh';
+	const lang = coerceLanguage(frontmatter.lang) ?? options.lang ?? 'zh';
 
 	const nodesForBody =
 		leadingTitleIndex !== null && normalizeText(title) === normalizeText(leadingTitle)

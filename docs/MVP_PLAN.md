@@ -18,7 +18,8 @@
 
 ## 交付物（代码落点）
 
-- `src/routes/+page.svelte`：Markdown 输入框 + PDF 预览 + 下载
+- `src/routes/[lang]/+page.svelte`：Markdown 输入框 + PDF 预览 + 下载（按语言子路径）
+- `src/routes/+page.svelte`：根路径语言选择/跳转
 - `src/lib/pipeline/markdownToTypst.ts`：Markdown 子集 → Typst 文本
 - `src/lib/typst/styles/*`：Typst 排版方案（集中 `set/show/#let`，正文保持纯净；可扩展多风格）
 - `src/lib/workers/typst.worker.ts`：WASM 初始化 + 编译入口（message API）

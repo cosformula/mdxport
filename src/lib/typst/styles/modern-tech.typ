@@ -1,7 +1,8 @@
 // 方案一：现代科技风 (The "Modern Tech" Style)
 // 特点：全无衬线（更像网页阅读）、段间距、无首行缩进、代码块现代风格。
 
-#let article(title: "", authors: (), lang: "zh", body) = {
+#let article(title: "", authors: (), ..args, body) = {
+  let lang = args.at("lang", default: "zh")
   // 1) 页面设置：宽边距，利于阅读
   set page(
     paper: "a4",
@@ -10,25 +11,27 @@
   )
   set document(title: title, author: authors)
 
-  // 2) 字体栈：英文优先，中文兜底（无衬线）
+  // 2) 字体栈：英文/数字用高质量西文字体，中文优先无衬线（屏幕阅读更舒适）
   set text(
-    font: ("Inter", "Roboto", "Noto Sans CJK SC", "Microsoft YaHei"),
-    size: 11pt,
+    font: ("IBM Plex Sans", "Roboto", "Noto Sans CJK SC", "Noto Serif CJK SC"),
+    size: 10.5pt,
     lang: lang,
   )
 
-  // 3) 段落：放弃首行缩进，采用“段间距”模式
+  // 3) 段落：放弃首行缩进，采用“段间距”模式（更接近网页阅读）
   set par(
     justify: true,
-    leading: 0.8em,
+    leading: 1em,
     first-line-indent: 0pt,
     spacing: 1.2em,
   )
+  set list(indent: 1em, body-indent: 0.5em, spacing: 0.8em, marker: [•])
+  set enum(indent: 1em, body-indent: 0.5em, spacing: 0.8em)
 
-  // 4) 标题：加粗、深灰、带间距
+  // 4) 标题：加粗、深灰、留白（建立清晰层级）
   show heading: it => {
-    set text(weight: "bold", fill: rgb("#333333"))
-    block(below: 0.8em, above: 1.5em, it)
+    set text(weight: "bold", fill: rgb("#333333"), font: ("IBM Plex Sans", "Noto Sans CJK SC", "Roboto"))
+    block(above: 2em, below: 1em, it)
   }
 
   // 5) 链接颜色：科技蓝
@@ -48,7 +51,15 @@
     )
   }
 
-  // 6) 代码块：圆角 + 浅灰背景
+  // 7) 行内代码：轻背景 + 圆角（避免只是变成等宽字体）
+  show raw.where(block: false): it => box(
+    fill: luma(240),
+    inset: (x: 3pt, y: 1pt),
+    radius: 2pt,
+    it,
+  )
+
+  // 8) 代码块：圆角 + 浅灰背景
   show raw.where(block: true): block.with(
     fill: luma(245),
     inset: 12pt,
