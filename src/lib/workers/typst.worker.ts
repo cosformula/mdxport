@@ -33,23 +33,65 @@ const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobal
 let compilerPromise: Promise<TypstCompiler> | null = null;
 let compileQueue: Promise<void> = Promise.resolve();
 
-const EXTRA_FONTS: string[] = [
-	// Sans (Latin) for modern headings/body
+const CORE_FONTS: string[] = [
+	// IBM Plex Sans (Modern UI) - Part of typst-dev-assets
 	'https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/IBMPlexSans-Regular.ttf',
-	'https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/IBMPlexSans-Medium.ttf',
 	'https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/IBMPlexSans-Bold.ttf',
 
-	// Serif CJK (Noto Serif SC from Google Fonts - Full versions)
-	'https://fonts.gstatic.com/s/notoserifsc/v34/H4cyBXePl9DZ0Xe7gG9cyOj7uK2-n-D2rd4FY7SCqyWv.ttf', // Regular
-	'https://fonts.gstatic.com/s/notoserifsc/v34/H4cyBXePl9DZ0Xe7gG9cyOj7uK2-n-D2rd4FY7RlrCWv.ttf', // Bold
+	// Math font (Critical for mathematical formulas) - Part of typst-assets
+	'https://cdn.jsdelivr.net/gh/typst/typst-assets@v0.13.1/files/fonts/NewCMMath-Regular.otf',
+	'https://cdn.jsdelivr.net/gh/typst/typst-assets@v0.13.1/files/fonts/NewCMMath-Book.otf'
+];
 
-	// Sans CJK (Simplified Chinese)
+const CJK_FONTS: string[] = [
+	// Sans CJK (Simplified Chinese) - Noto Sans CJK SC (~15MB)
 	'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf',
 	'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Bold.otf',
 
-	// Emoji font (Noto Color Emoji - color version)
+	// Serif CJK (Simplified Chinese) - Noto Serif SC from Google Fonts (~14MB)
+	'https://fonts.gstatic.com/s/notoserifsc/v35/H4cyBXePl9DZ0Xe7gG9cyOj7uK2-n-D2rd4FY7SCqyWv.ttf'
+];
+
+const EMOJI_FONTS: string[] = [
+	// Emoji font (Noto Color Emoji) (~9MB)
 	'https://fonts.gstatic.com/s/notocoloremoji/v37/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFab4.ttf'
 ];
+
+let cjkLoaded = false;
+let emojiLoaded = false;
+
+async function upgradeCompiler(needCjk: boolean, needEmoji: boolean) {
+	// Check if we need to upgrade
+	const shouldUpgradeCjk = needCjk && !cjkLoaded;
+	const shouldUpgradeEmoji = needEmoji && !emojiLoaded;
+
+	if (!shouldUpgradeCjk && !shouldUpgradeEmoji) return;
+
+	if (shouldUpgradeCjk) cjkLoaded = true;
+	if (shouldUpgradeEmoji) emojiLoaded = true;
+
+	console.log(`MDXport - Upgrading compiler (CJK: ${cjkLoaded}, Emoji: ${emojiLoaded})...`);
+	
+	const fontsToLoad = [...CORE_FONTS];
+	if (cjkLoaded) fontsToLoad.push(...CJK_FONTS);
+	if (emojiLoaded) fontsToLoad.push(...EMOJI_FONTS);
+
+	const newCompiler = createTypstCompiler();
+	await newCompiler.init({
+		getModule: () => typstCompilerWasmUrl,
+		beforeBuild: [
+			loadFonts(fontsToLoad, {
+				assets: ['text']
+			})
+		]
+	});
+	newCompiler.addSource('/styles/modern-tech.typ', modernTechTyp);
+	newCompiler.addSource('/styles/classic-editorial.typ', classicEditorialTyp);
+	
+	// Swap the compiler promise
+	compilerPromise = Promise.resolve(newCompiler);
+	console.log('MDXport - Compiler upgraded successfully.');
+}
 
 function getCompiler(): Promise<TypstCompiler> {
 	if (compilerPromise) return compilerPromise;
@@ -59,8 +101,8 @@ function getCompiler(): Promise<TypstCompiler> {
 		await compiler.init({
 			getModule: () => typstCompilerWasmUrl,
 			beforeBuild: [
-				loadFonts(EXTRA_FONTS, {
-					assets: ['text', 'cjk']
+				loadFonts(CORE_FONTS, {
+					assets: ['text'] // Load standard Typst fonts (~18MB), includes math and common Latin fonts
 				})
 			]
 		});
@@ -76,6 +118,15 @@ async function compilePdf(
 	mainTypst: string,
 	images: Record<string, Uint8Array<ArrayBuffer>> = {}
 ): Promise<{ pdf: Uint8Array; diagnostics: string[] }> {
+	// Check for special characters
+	const hasCjk = /[\u4e00-\u9fa5]/.test(mainTypst);
+	// Broad emoji detection regex
+	const hasEmoji = /[\u{1F000}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(mainTypst);
+	
+	if (hasCjk || hasEmoji) {
+		await upgradeCompiler(hasCjk, hasEmoji);
+	}
+
 	const compiler = await getCompiler();
 	compiler.addSource('/main.typ', mainTypst);
 

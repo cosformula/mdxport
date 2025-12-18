@@ -13,7 +13,15 @@
 
   // 2) 字体栈：英文/数字用高质量西文字体，中文优先无衬线（屏幕阅读更舒适），末尾添加 emoji 字体
   set text(
-    font: ("IBM Plex Sans", "Roboto", "Noto Sans CJK SC", "Noto Serif CJK SC", "Noto Color Emoji"),
+    font: (
+      "IBM Plex Sans",
+      "Roboto",
+      "Libertinus Sans",
+      "Noto Sans CJK SC",
+      "Noto Sans SC",
+      "Noto Serif SC",
+      "Noto Color Emoji",
+    ),
     size: 10.5pt,
     lang: lang,
   )
@@ -30,7 +38,11 @@
 
   // 4) 标题：加粗、深灰、留白（建立清晰层级）
   show heading: it => {
-    set text(weight: "bold", fill: rgb("#333333"), font: ("IBM Plex Sans", "Noto Sans CJK SC", "Roboto"))
+    set text(
+      weight: "bold",
+      fill: rgb("#333333"),
+      font: ("IBM Plex Sans", "Roboto", "Noto Sans CJK SC", "Noto Sans SC"),
+    )
     block(above: 2em, below: 1em, it)
   }
 

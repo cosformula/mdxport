@@ -8,7 +8,12 @@
 
   // 1) 字体：正文衬线 + 英文字体兜底（更像纸质阅读），标题单独用无衬线建立对比，末尾添加 emoji 字体
   set text(
-    font: ("Libertinus Serif", "Noto Serif CJK SC", "Noto Color Emoji"),
+    font: (
+      "Libertinus Serif",
+      "Noto Serif SC",
+      "Noto Serif CJK SC",
+      "Noto Color Emoji",
+    ),
     size: 12pt,
     lang: lang,
   )

@@ -48,10 +48,10 @@ date: ${new Date().toISOString().split('T')[0]}
 
 | 特性 | 说明 |
 | :--- | :--- |
-| **🛡️ 隐私优先** | 基于 WASM 技术，所有数据都在浏览器本地处理，绝不上传服务器 |
-| **✨ 智能修复** | 自动修复 AI 生成的 Markdown 排版问题：表格溢出、层级混乱、格式错误 |
-| **📄 商务排版** | 内置思源宋体等中文字体，专业文档一键生成，所见即所得 |
-| **⚡ 即开即用** | 无需安装、无需登录，打开网页直接使用 |
+| **隐私优先** | 基于 WASM 技术，所有数据都在浏览器本地处理，绝不上传服务器 |
+| **智能修复** | 自动修复 AI 生成的 Markdown 排版问题：表格溢出、层级混乱、格式错误 |
+| **商务排版** | 内置思源宋体等中文字体，专业文档一键生成，所见即所得 |
+| **即开即用** | 无需安装、无需登录，打开网页直接使用 |
 
 ## 快速开始
 
@@ -125,10 +125,10 @@ date: ${new Date().toISOString().split('T')[0]}
 
 |Feature|Description|
 |:---|:---|
-|**🛡️ Privacy First**|Powered by WASM, all processing happens locally in your browser. No data upload.|
-|**✨ Smart Cleanup**|Auto-fix AI-generated Markdown issues: table overflow, broken hierarchy, formatting errors|
-|**📄 Pro Typesetting**|Built-in professional fonts, business-ready documents, what you see is what you get|
-|**⚡ Zero Setup**|No installation, no login required. Just open and use.|
+|**Privacy First**|Powered by WASM, all processing happens locally in your browser. No data upload.|
+|**Smart Cleanup**|Auto-fix AI-generated Markdown issues: table overflow, broken hierarchy, formatting errors|
+|**Pro Typesetting**|Built-in professional fonts, business-ready documents, what you see is what you get|
+|**Zero Setup**|No installation, no login required. Just open and use.|
 
 ## Quick Start
 1. Paste your **ChatGPT / Claude** draft into the left editor
