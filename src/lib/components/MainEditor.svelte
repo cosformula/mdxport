@@ -837,7 +837,7 @@ date: ${new Date().toISOString().split('T')[0]}
 
       <!-- New Tab / Preview Button (Visible on Desktop/Tablet, Icon on Mobile) -->
       <button
-        class="btn btn-ghost btn-sm btn-icon-mobile"
+        class="btn btn-ghost btn-sm btn-icon-mobile hidden-mobile"
         onclick={openPdfNewTab}
         disabled={!pdfUrl || status === 'compiling'}
         title={lang === 'zh' ? '在新标签页打开 PDF' : 'Open PDF in New Tab'}
@@ -910,6 +910,18 @@ date: ${new Date().toISOString().split('T')[0]}
 
         {#if isMenuOpen}
           <div class="dropdown-menu">
+            <button
+              class="menu-item show-mobile"
+              onclick={() => {
+                openPdfNewTab()
+                closeMenu()
+              }}
+              disabled={!pdfUrl || status === 'compiling'}
+            >
+              <span class="menu-icon">🌐</span>
+              {lang === 'zh' ? '在新页预览 PDF' : 'Preview PDF in New Tab'}
+            </button>
+
             <button
               class="menu-item"
               onclick={() => {
@@ -1438,5 +1450,17 @@ date: ${new Date().toISOString().split('T')[0]}
       height: 2px;
       background: var(--color-gray-900);
     }
+
+    .hidden-mobile {
+      display: none !important;
+    }
+
+    .show-mobile {
+      display: flex !important;
+    }
+  }
+
+  .show-mobile {
+    display: none;
   }
 </style>
