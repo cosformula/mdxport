@@ -25,7 +25,7 @@
     lang = 'en',
     seoTitle,
     seoDescription,
-    initialMarkdown,
+    initialMarkdown = '',
   }: Props = $props()
 
   // ========================================
@@ -262,11 +262,18 @@ date: ${new Date().toISOString().split('T')[0]}
     },
   ]
 
-  // ========================================
   // State
-  // ========================================
   // Initialize markdown with initialMarkdown if provided, otherwise default
-  let markdown = $state(initialMarkdown ?? WELCOME_MARKDOWN[lang] ?? '')
+  let markdown = $state('')
+  let hasInitialized = false
+
+  $effect(() => {
+    if (!hasInitialized) {
+      markdown = initialMarkdown || WELCOME_MARKDOWN[lang] || ''
+      hasInitialized = true
+    }
+  })
+
   let leftPaneWidth = $state(50)
   let isResizing = $state(false)
   let isDragging = $state(false)
@@ -761,7 +768,9 @@ date: ${new Date().toISOString().split('T')[0]}
   }
 
   function fitWidth() {
-    if (!pdfViewer) return
+    if (!pdfViewer || !pdfViewerContainerEl) return
+    // Check if visible to avoid "offsetParent is not set" error
+    if (pdfViewerContainerEl.offsetParent === null) return
     pdfViewer.currentScaleValue = 'page-width'
   }
 </script>
@@ -1371,14 +1380,6 @@ date: ${new Date().toISOString().split('T')[0]}
     margin: var(--space-xs) 0;
   }
 
-  .menu-label {
-    padding: 4px var(--space-sm);
-    font-size: 0.6875rem;
-    text-transform: uppercase;
-    color: var(--color-gray-400);
-    font-weight: 500;
-  }
-
   /* ========================================
     Mobile Layout
     ======================================== */
@@ -1393,14 +1394,6 @@ date: ${new Date().toISOString().split('T')[0]}
 
     .navbar {
       padding: 0 var(--space-sm);
-    }
-
-    .logo {
-      font-size: 0.875rem;
-    }
-
-    .menu-container {
-      /* Ensure menu doesn't go off screen if needed, though right-0 handles it */
     }
 
     /* Remove specific footer mobile styles as footer is gone */

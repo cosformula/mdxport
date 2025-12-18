@@ -19,7 +19,7 @@
     },
     {
       "src": "logo.png",
-      "sizes": "512x512",
+      "sizes": "183x100",
       "type": "image/png"
     },
     {
@@ -29,7 +29,7 @@
     },
     {
       "src": "square.png",
-      "sizes": "512x512",
+      "sizes": "240x240",
       "type": "image/png",
       "purpose": "any maskable"
     }

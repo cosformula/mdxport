@@ -6,6 +6,7 @@ export default defineConfig({
 	plugins: [
 		sveltekit(),
 		SvelteKitPWA({
+			registerType: 'autoUpdate',
 			manifest: {
 				name: 'MDXport',
 				short_name: 'MDXport',
@@ -24,18 +25,17 @@ export default defineConfig({
 					},
 					{
 						src: 'logo.png',
-						sizes: '512x512',
+						sizes: '183x100',
 						type: 'image/png'
 					},
 					{
 						src: 'apple-touch-icon.png',
 						sizes: '180x180',
-						type: 'image/png',
-						purpose: 'apple touch icon'
+						type: 'image/png'
 					},
 					{
 						src: 'square.png',
-						sizes: '512x512',
+						sizes: '240x240',
 						type: 'image/png',
 						purpose: 'any maskable'
 					}
