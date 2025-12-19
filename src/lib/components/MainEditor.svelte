@@ -386,6 +386,15 @@ date: ${new Date().toISOString().split('T')[0]}
   const { needRefresh, updateServiceWorker } = useRegisterSW({
     onRegistered(swr) {
       console.log('SW registered: ', swr)
+      if (swr) {
+        setInterval(
+          () => {
+            console.log('Checking for SW update...')
+            swr.update()
+          },
+          60 * 60 * 1000,
+        ) // Check every hour
+      }
     },
     onRegisterError(error) {
       console.log('SW registration error', error)
