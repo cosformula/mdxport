@@ -21,6 +21,20 @@ MDXport is a powerful Markdown export tool built with [Svelte](https://svelte.de
   - 📑 **Auto-generated Table of Contents**
 - **No Setup**: No installation or account required. Just open and use.
 
+## 📸 Screenshots
+
+<p align="center">
+  <img src="static/screenshots/screenshot_editor.png" alt="MDXport Editor Interface" width="100%" />
+  <br>
+  <em>Split-screen editing with real-time PDF preview</em>
+</p>
+
+<p align="center">
+  <img src="static/screenshots/screenshot_features.png" alt="MDXport Features" width="100%" />
+  <br>
+  <em>Rich support for Math, Mermaid diagrams, and Charts</em>
+</p>
+
 ## 🚀 Quick Start
 
 Visit [mdxport.com](https://mdxport.com) to start using it immediately.
