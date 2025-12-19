@@ -8,6 +8,7 @@
   import { TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
+  import { useRegisterSW } from 'virtual:pwa-register/svelte'
 
   // CodeMirror 6 Imports
   import { EditorView, basicSetup } from 'codemirror'
@@ -379,6 +380,16 @@ date: ${new Date().toISOString().split('T')[0]}
       markdown = initialMarkdown || WELCOME_MARKDOWN[lang] || ''
       hasInitialized = true
     }
+  })
+
+  // PWA Service Worker
+  const { needRefresh, updateServiceWorker } = useRegisterSW({
+    onRegistered(swr) {
+      console.log('SW registered: ', swr)
+    },
+    onRegisterError(error) {
+      console.log('SW registration error', error)
+    },
   })
 
   let leftPaneWidth = $state(50)
@@ -788,7 +799,7 @@ date: ${new Date().toISOString().split('T')[0]}
   }
 
   // Mobile State
-  let activeMobileTab = $state<'editor' | 'preview'>('editor')
+  let activeMobileTab = $state<'files' | 'editor' | 'preview'>('editor')
   let isMenuOpen = $state(false)
 
   function toggleMenu(e?: Event) {
@@ -1644,6 +1655,23 @@ date: ${new Date().toISOString().split('T')[0]}
               <span class="menu-icon">✉️</span>
               {lang === 'zh' ? '联系我们' : 'Contact'}
             </a>
+            {#if $needRefresh}
+              <div class="menu-divider"></div>
+              <button
+                class="menu-item"
+                onclick={() => updateServiceWorker(true)}
+                style="color: var(--color-green-600);"
+              >
+                <span class="menu-icon">⚡</span>
+                {lang === 'zh' ? '更新应用' : 'Update Available'}
+              </button>
+            {:else}
+              <div class="menu-divider"></div>
+              <button class="menu-item small" disabled>
+                <span class="menu-icon">✓</span>
+                {lang === 'zh' ? '已是最新版本' : 'Latest Version'}
+              </button>
+            {/if}
           </div>
         {/if}
       </div>
@@ -1653,7 +1681,11 @@ date: ${new Date().toISOString().split('T')[0]}
   <!-- Workspace -->
   <main class="workspace">
     <!-- Sidebar -->
-    <aside class="sidebar hidden-mobile" style="width: {sidebarWidth}px">
+    <aside
+      class="sidebar"
+      class:mobile-hidden={activeMobileTab !== 'files'}
+      style="width: {sidebarWidth}px"
+    >
       <div class="sidebar-header">
         <span>{lang === 'zh' ? '工作区' : 'WORKSPACE'}</span>
         <div class="header-actions">
@@ -1721,6 +1753,13 @@ date: ${new Date().toISOString().split('T')[0]}
 
     <!-- Mobile Tab Switcher (Visible only on mobile) -->
     <div class="mobile-tabs">
+      <button
+        class="mobile-tab-btn"
+        class:active={activeMobileTab === 'files'}
+        onclick={() => (activeMobileTab = 'files')}
+      >
+        {lang === 'zh' ? '工作区' : 'Files'}
+      </button>
       <button
         class="mobile-tab-btn"
         class:active={activeMobileTab === 'editor'}
@@ -2265,9 +2304,19 @@ date: ${new Date().toISOString().split('T')[0]}
       padding-bottom: 50px; /* Space for mobile tabs */
     }
 
-    .pane.mobile-hidden {
+    .pane.mobile-hidden,
+    .sidebar.mobile-hidden {
       display: none; /* simple hide */
       z-index: 0;
+    }
+
+    .sidebar {
+      width: 100% !important; /* Force full width on mobile */
+      position: absolute; /* Stack it */
+      inset: 0;
+      z-index: 10; /* Sidebar might want to be on top if active, or just same z-index logic as panes */
+      padding-bottom: 50px;
+      border-right: none;
     }
 
     .resizer {
