@@ -18,6 +18,7 @@ import type {
 	FootnoteDefinition,
 	FootnoteReference,
 	Heading,
+	Html,
 	Image,
 	InlineCode,
 	Link,
@@ -520,9 +521,11 @@ function renderInline(
 		case 'text':
 			return escapeTypstText((node as Text).value);
 		case 'strong':
-			return `*${renderInlines((node as Strong).children, definitions, footnoteDefinitions)}*`;
+			// Use #strong[] function form to avoid ambiguity with /* comments and other edge cases
+			return `#strong[${renderInlines((node as Strong).children, definitions, footnoteDefinitions)}]`;
 		case 'emphasis':
-			return `_${renderInlines((node as Emphasis).children, definitions, footnoteDefinitions)}_`;
+			// Use #emph[] function form to avoid potential parsing issues
+			return `#emph[${renderInlines((node as Emphasis).children, definitions, footnoteDefinitions)}]`;
 		case 'delete':
 			return `#strike[${renderInlines((node as unknown as Delete).children, definitions, footnoteDefinitions)}]`;
 		case 'mark':
@@ -554,6 +557,9 @@ function renderInline(
 			return renderLinkReference(node as LinkReference, definitions, footnoteDefinitions);
 		case 'break':
 			return '\\\n';
+		case 'html':
+			// Treat inline HTML as literal text, escape it for Typst
+			return escapeTypstText((node as Html).value);
 		default:
 			return null;
 	}
@@ -596,7 +602,7 @@ function renderLinkReference(
 }
 
 function escapeTypstText(input: string): string {
-	return input.replace(/[\\#*_`\[\]\$]/g, (c) => `\\${c}`);
+	return input.replace(/[\\#*_`\[\]\$<>@]/g, (c) => `\\${c}`);
 }
 
 function escapeTypstString(input: string): string {
