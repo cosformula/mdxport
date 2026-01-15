@@ -72,6 +72,10 @@ If you want to run MDXport locally:
 - **PDF Preview**: [PDF.js](https://mozilla.github.io/pdf.js/)
 - **Icons**: [Lucide](https://lucide.dev/) (via SVG)
 
+## 🔗 Related Projects
+
+- [markdown2typst](https://github.com/Mapaor/markdown2typst) - A standalone npm package for Markdown to Typst conversion by [@Mapaor](https://github.com/Mapaor).
+
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).

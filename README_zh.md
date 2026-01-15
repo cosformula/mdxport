@@ -58,6 +58,10 @@ MDXport 是一款基于 [Svelte](https://svelte.dev/) 和 [Typst](https://typst.
 - **PDF 预览**: [PDF.js](https://mozilla.github.io/pdf.js/)
 - **图标**: [Lucide](https://lucide.dev/) (SVG)
 
+## 🔗 相关项目
+
+- [markdown2typst](https://github.com/Mapaor/markdown2typst) - 由 [@Mapaor](https://github.com/Mapaor) 创建的 Markdown 转 Typst npm 包。
+
 ## 📄 开源协议
 
 本项目采用 [MIT 协议](LICENSE)。
