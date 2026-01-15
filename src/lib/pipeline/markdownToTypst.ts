@@ -8,6 +8,7 @@ import remarkMark from 'remark-mark';
 // @ts-ignore
 import remarkSupersub from './plugins/remark-simple-supersub';
 import remarkParse from 'remark-parse';
+import { tex2typst } from 'tex2typst';
 import type {
 	Blockquote,
 	Code,
@@ -324,7 +325,22 @@ function renderBlock(
 
 function renderMathBlock(node: MathNode, indentLevel: number): string {
 	// Block math in Typst uses spaces: $ block $
-	return indentLines(`$ ${node.value.trim()} $`, indentLevel);
+	// Convert LaTeX math to Typst math using tex2typst
+	const typstMath = convertLatexToTypst(node.value.trim());
+	return indentLines(`$ ${typstMath} $`, indentLevel);
+}
+
+/**
+ * Convert LaTeX math to Typst math format.
+ * Falls back to original if conversion fails.
+ */
+function convertLatexToTypst(latex: string): string {
+	try {
+		return tex2typst(latex);
+	} catch {
+		// If conversion fails, return original (may still work for simple expressions)
+		return latex;
+	}
 }
 
 function renderHeading(
@@ -548,7 +564,7 @@ function renderInline(
 		case 'inlineCode':
 			return renderInlineCode(node as InlineCode);
 		case 'inlineMath':
-			return `$${(node as InlineMathNode).value.trim()}$`;
+			return `$${convertLatexToTypst((node as InlineMathNode).value.trim())}$`;
 		case 'image':
 			return renderImage(node as Image);
 		case 'link':
