@@ -128,11 +128,11 @@ const pdf = await compile(markdown);
 
 ### 数学公式
 
-行内公式：$ E = m c^2 $
+行内公式：$ E = m c^2 $，复杂公式：$ \\frac{a}{b} + \\sqrt{x} $
 
 块级公式：
 $$
-a^2 + b^2 = c^2
+\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}
 $$
 
 ### 流程图 (Mermaid)
@@ -228,11 +228,11 @@ const pdf = await compile(markdown);
 
 ### Math Formula
 
-Inline: $ E = m c^2 $
+Inline: $ E = m c^2 $, Complex: $ \\frac{a}{b} + \\sqrt{x} $
 
 Block:
 $$
-a^2 + b^2 = c^2
+\\int_0^\\infty e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}
 $$
 
 ### Diagram (Mermaid)
