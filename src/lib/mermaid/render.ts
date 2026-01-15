@@ -1,6 +1,7 @@
 import mermaid from 'mermaid';
 
 let initialized = false;
+let renderQueue: Promise<void> = Promise.resolve();
 
 const encoder = new TextEncoder();
 
@@ -22,21 +23,38 @@ function init() {
 }
 
 /**
+ * Generate a unique ID to avoid conflicts
+ */
+function generateUniqueId(baseId: string): string {
+	return `${baseId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
  * Render mermaid code to SVG Uint8Array
- * Uses an isolated container to prevent error DOM leakage
+ * Uses an isolated container and sequential rendering to prevent conflicts
  */
 export async function renderMermaidToSvg(code: string, id: string): Promise<Uint8Array> {
+	// Queue renders to prevent concurrent mermaid operations which can cause DOM conflicts
+	const result = renderQueue.then(() => doRender(code, id));
+	renderQueue = result.then(() => {}, () => {}); // Update queue, ignore errors for queue
+	return result;
+}
+
+async function doRender(code: string, baseId: string): Promise<Uint8Array> {
 	init();
-	
+
+	// Use unique ID to avoid conflicts with previous renders
+	const uniqueId = generateUniqueId(baseId);
+
 	// Create an isolated off-screen container for Mermaid rendering
 	const container = document.createElement('div');
-	container.id = `mermaid-container-${id}`;
+	container.id = `mermaid-container-${uniqueId}`;
 	container.style.cssText = 'position: absolute; left: -9999px; top: -9999px; visibility: hidden;';
 	document.body.appendChild(container);
-	
+
 	try {
 		// mermaid.render returns an object with svg property in v10+
-		const { svg } = await mermaid.render(id, code, container);
+		const { svg } = await mermaid.render(uniqueId, code, container);
 		return encoder.encode(svg);
 	} catch (error) {
 		console.error('Mermaid render error:', error);
@@ -56,9 +74,11 @@ export async function renderMermaidToSvg(code: string, id: string): Promise<Uint
 		);
 	} finally {
 		// Always clean up the container
-		container.remove();
+		if (container.parentNode) {
+			container.remove();
+		}
 		// Also clean up any stray mermaid error elements that might have been created
-		const strayElements = document.querySelectorAll(`#d${id}, [data-mermaid-id="${id}"]`);
+		const strayElements = document.querySelectorAll(`#${uniqueId}, #d${uniqueId}, [data-mermaid-id="${uniqueId}"]`);
 		strayElements.forEach(el => el.remove());
 	}
 }
