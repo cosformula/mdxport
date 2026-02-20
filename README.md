@@ -74,6 +74,7 @@ If you want to run MDXport locally:
 
 ## 🔗 Related Projects
 
+- [mdxport-cli](https://github.com/cosformula/mdxport-cli) - A fast, single-binary CLI for Markdown to PDF conversion. Install via `npm install -g @mdxport/cli`.
 - [markdown2typst](https://github.com/Mapaor/markdown2typst) - A standalone npm package for Markdown to Typst conversion by [@Mapaor](https://github.com/Mapaor).
 
 ## 📄 License

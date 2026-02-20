@@ -60,6 +60,7 @@ MDXport 是一款基于 [Svelte](https://svelte.dev/) 和 [Typst](https://typst.
 
 ## 🔗 相关项目
 
+- [mdxport-cli](https://github.com/cosformula/mdxport-cli) - 命令行版本，单二进制，通过 `npm install -g @mdxport/cli` 安装。
 - [markdown2typst](https://github.com/Mapaor/markdown2typst) - 由 [@Mapaor](https://github.com/Mapaor) 创建的 Markdown 转 Typst npm 包。
 
 ## 📄 开源协议
