@@ -336,6 +336,12 @@
     markdown = templateContent
   }
 
+  function insertPageBreak() {
+    // Append a page break at the end, or insert at a logical position
+    const trimmed = markdown.trimEnd()
+    markdown = trimmed + '\n\n---\n\n'
+  }
+
   // ========================================
   // Navigation helpers
   // ========================================
@@ -602,9 +608,12 @@
             <option value={idx}>{tmpl.icon} {tmpl.name}</option>
           {/each}
         </select>
+        <button class="toolbar-btn" onclick={insertPageBreak} title={lang === 'zh' ? '插入分页（新卡片）' : 'Insert page break (new card)'}>
+          {lang === 'zh' ? '+ 分页' : '+ Break'}
+        </button>
       </div>
       {#if editorMode === 'wysiwyg'}
-        <WysiwygEditor bind:markdown placeholder={t('placeholder')} />
+        <WysiwygEditor bind:markdown placeholder={t('placeholder')} cardMode />
       {:else}
         <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
       {/if}
@@ -938,6 +947,22 @@
     background: var(--color-white, #fff);
     color: var(--color-gray-900, #111);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  .toolbar-btn {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    background: var(--color-white, #fff);
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    color: var(--color-gray-600, #4b5563);
+  }
+
+  .toolbar-btn:hover {
+    background: var(--color-gray-100, #f3f4f6);
+    border-color: var(--color-gray-300, #d1d5db);
   }
 
   .toolbar-select {
