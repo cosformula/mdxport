@@ -702,25 +702,6 @@
       <a href="/{lang}/redbook/" class="mode-link hidden-mobile" title={lang === 'zh' ? '小红书卡片模式' : 'RedNote Card Mode'}>
         {lang === 'zh' ? '小红书模式' : 'Card Mode'}
       </a>
-
-      <!-- Template Dropdown -->
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="template-dropdown" onclick={(e) => e.stopPropagation()}>
-        <button class="btn btn-ghost btn-sm" onclick={toggleTemplateMenu}>
-          {lang === 'zh' ? '模板' : 'Templates'}
-        </button>
-        {#if isTemplateMenuOpen}
-          <div class="template-menu">
-            {#each templates as tmpl}
-              <button class="template-menu-item" onclick={() => loadTemplate(tmpl)}>
-                <span class="template-icon">{tmpl.icon}</span>
-                {tmpl.name}
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
     </div>
     <div class="navbar-center">
       <!-- Intentionally empty -->
@@ -886,6 +867,25 @@
       class:mobile-hidden={activeMobileTab !== 'editor'}
       style="width: {leftPaneWidth}%"
     >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="editor-toolbar">
+        <div class="template-dropdown" onclick={(e) => e.stopPropagation()}>
+          <button class="toolbar-btn" onclick={toggleTemplateMenu}>
+            {lang === 'zh' ? '模板' : 'Templates'}
+          </button>
+          {#if isTemplateMenuOpen}
+            <div class="template-menu">
+              {#each templates as tmpl}
+                <button class="template-menu-item" onclick={() => loadTemplate(tmpl)}>
+                  <span class="template-icon">{tmpl.icon}</span>
+                  {tmpl.name}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
       <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
@@ -1186,6 +1186,32 @@
   .editor-pane {
     background: var(--editor-bg);
     position: relative;
+  }
+
+  .editor-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    background: var(--color-gray-50, #f9fafb);
+    border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
+    flex-shrink: 0;
+    gap: 6px;
+  }
+
+  .toolbar-btn {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    background: var(--color-white, #fff);
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    color: var(--color-gray-600, #4b5563);
+  }
+
+  .toolbar-btn:hover {
+    background: var(--color-gray-100, #f3f4f6);
+    border-color: var(--color-gray-300, #d1d5db);
   }
 
   .error-bar {

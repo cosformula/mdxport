@@ -468,26 +468,6 @@
       <!-- spacer -->
     </div>
     <div class="navbar-right">
-      <!-- Template Dropdown -->
-      <select
-        class="template-select"
-        onchange={(e) => {
-          const target = e.target as HTMLSelectElement
-          const idx = parseInt(target.value, 10)
-          if (!isNaN(idx)) {
-            applyTemplate(REDBOOK_TEMPLATES[lang][idx].content)
-          }
-          target.value = ''
-        }}
-      >
-        <option value="" disabled selected
-          >{lang === 'zh' ? '模板' : 'Templates'}</option
-        >
-        {#each REDBOOK_TEMPLATES[lang] as tmpl, idx}
-          <option value={idx}>{tmpl.icon} {tmpl.name}</option>
-        {/each}
-      </select>
-
       <!-- Download Button -->
       <button
         class="btn btn-primary btn-sm"
@@ -591,6 +571,24 @@
       class:mobile-hidden={activeMobileTab !== 'editor'}
       style="width: {leftPaneWidth}%"
     >
+      <div class="editor-toolbar">
+        <select
+          class="toolbar-select"
+          onchange={(e) => {
+            const target = e.target as HTMLSelectElement
+            const idx = parseInt(target.value, 10)
+            if (!isNaN(idx)) {
+              applyTemplate(REDBOOK_TEMPLATES[lang][idx].content)
+            }
+            target.value = ''
+          }}
+        >
+          <option value="" disabled selected>{lang === 'zh' ? '模板' : 'Templates'}</option>
+          {#each REDBOOK_TEMPLATES[lang] as tmpl, idx}
+            <option value={idx}>{tmpl.icon} {tmpl.name}</option>
+          {/each}
+        </select>
+      </div>
       <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
@@ -885,6 +883,38 @@
   .editor-pane {
     background: var(--editor-bg);
     position: relative;
+  }
+
+  .editor-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    background: var(--color-gray-50, #f9fafb);
+    border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
+    flex-shrink: 0;
+    gap: 6px;
+  }
+
+  .toolbar-select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 3px 24px 3px 8px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    background-color: var(--color-white, #fff);
+    background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 9L12 15L18 9' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    background-size: 12px;
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    color: var(--color-gray-600, #4b5563);
+  }
+
+  .toolbar-select:hover {
+    background-color: var(--color-gray-100, #f3f4f6);
+    border-color: var(--color-gray-300, #d1d5db);
   }
 
   .error-bar {
