@@ -13,10 +13,25 @@
   let crepeInstance: any = null
   let suppressUpdate = false
 
+  // Strip YAML frontmatter before passing to Milkdown, restore on output
+  const frontmatterRegex = /^---\n[\s\S]*?\n---\n*/
+
+  function stripFrontmatter(md: string): { frontmatter: string; body: string } {
+    const match = md.match(frontmatterRegex)
+    if (match) {
+      return { frontmatter: match[0], body: md.slice(match[0].length) }
+    }
+    return { frontmatter: '', body: md }
+  }
+
+  let currentFrontmatter = ''
+
   onMount(() => {
     if (!containerEl) return
 
     let destroyed = false
+    const { frontmatter, body } = stripFrontmatter(markdown)
+    currentFrontmatter = frontmatter
 
     ;(async () => {
       const { Crepe } = await import('@milkdown/crepe')
@@ -30,7 +45,7 @@
 
       const crepe = new Crepe({
         root: containerEl!,
-        defaultValue: markdown,
+        defaultValue: body,
         features: {
           [Crepe.Feature.ImageBlock]: false,
         },
@@ -43,7 +58,7 @@
       crepe.on((listener) => {
         listener.markdownUpdated((_ctx, md, prevMd) => {
           if (md !== prevMd && !suppressUpdate) {
-            markdown = md
+            markdown = currentFrontmatter + md
           }
         })
       })
@@ -66,10 +81,12 @@
     const md = markdown
     untrack(() => {
       if (!crepeInstance) return
+      const { frontmatter, body } = stripFrontmatter(md)
+      currentFrontmatter = frontmatter
       const currentMd = crepeInstance.crepe.getMarkdown()
-      if (md !== currentMd) {
+      if (body !== currentMd) {
         suppressUpdate = true
-        crepeInstance.crepe.editor.action(crepeInstance.replaceAll(md))
+        crepeInstance.crepe.editor.action(crepeInstance.replaceAll(body))
         suppressUpdate = false
       }
     })
@@ -95,5 +112,22 @@
     min-height: 100%;
     padding: 16px 20px;
     outline: none;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .wysiwyg-host :global(.ProseMirror h1) {
+    font-size: 1.5em;
+    margin: 0.6em 0 0.4em;
+  }
+
+  .wysiwyg-host :global(.ProseMirror h2) {
+    font-size: 1.25em;
+    margin: 0.5em 0 0.3em;
+  }
+
+  .wysiwyg-host :global(.ProseMirror h3) {
+    font-size: 1.1em;
+    margin: 0.4em 0 0.2em;
   }
 </style>
