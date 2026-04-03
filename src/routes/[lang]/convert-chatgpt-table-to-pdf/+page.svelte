@@ -1,5 +1,5 @@
 <script lang="ts">
-  import MainEditor from '$lib/components/MainEditor.svelte'
+  import PdfEditor from '$lib/components/PdfEditor.svelte'
   import type { UILang } from '$lib/i18n/lang'
 
   let { data }: { data: { lang: UILang } } = $props()
@@ -81,7 +81,7 @@ Edit this table to see the magic:
   }
 </script>
 
-<MainEditor
+<PdfEditor
   lang={data.lang}
   seoTitle={SEO[data.lang].title}
   seoDescription={SEO[data.lang].description}

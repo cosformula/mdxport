@@ -49,6 +49,17 @@
         en: 'Simpler, easier online document editor',
       },
     },
+    {
+      path: 'redbook',
+      title: {
+        zh: 'Markdown 转小红书卡片',
+        en: 'Markdown to RedNote Cards',
+      },
+      description: {
+        zh: '将 Markdown 转为精美的小红书图片卡片，多种样式可选',
+        en: 'Convert Markdown to beautiful image cards with multiple styles',
+      },
+    },
   ]
 </script>
 

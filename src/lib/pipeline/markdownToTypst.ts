@@ -66,16 +66,25 @@ export type MarkdownToTypstOptions = {
 	authors?: string[];
 	style?: TypstStyleId;
 	lang?: 'zh' | 'en';
+	font?: 'sans' | 'serif';
 };
 
-export type TypstStyleId = 'modern-tech' | 'classic-editorial';
+export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist';
+
+// Module-scoped style for use in renderBlock without threading through all calls
+let currentStyle: TypstStyleId = 'modern-tech';
 
 const STYLE_TO_TEMPLATE: Record<TypstStyleId, { path: string; entry: string }> = {
 	'modern-tech': { path: 'styles/modern-tech.typ', entry: 'article' },
-	'classic-editorial': { path: 'styles/classic-editorial.typ', entry: 'article' }
+	'classic-editorial': { path: 'styles/classic-editorial.typ', entry: 'article' },
+	'redbook-knowledge': { path: 'styles/redbook-knowledge.typ', entry: 'article' },
+	'redbook-dark': { path: 'styles/redbook-dark.typ', entry: 'article' },
+	'redbook-minimalist': { path: 'styles/redbook-minimalist.typ', entry: 'article' }
 };
 
 export function markdownToTypst(markdown: string, options: MarkdownToTypstOptions = {}): string {
+	currentStyle = options.style ?? 'modern-tech';
+
 	const processor = unified()
 		.use(remarkParse)
 		.use(remarkFrontmatter, ['yaml'])
@@ -112,10 +121,12 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 	const styleId: TypstStyleId = options.style ?? 'modern-tech';
 	const template = STYLE_TO_TEMPLATE[styleId] ?? STYLE_TO_TEMPLATE['modern-tech'];
 	header.push(`#import "${template.path}": ${template.entry}`);
+	const font = options.font ?? 'sans';
 	const showArgs = [
 		title ? `title: "${escapeTypstString(title)}"` : null,
 		authors.length ? `authors: ${renderTypstArray(authors.map((a) => `"${escapeTypstString(a)}"`))}` : null,
-		`lang: "${lang}"`
+		`lang: "${lang}"`,
+		font !== 'sans' ? `font: "${font}"` : null
 	]
 		.filter(isNonEmpty)
 		.join(', ');
@@ -313,6 +324,9 @@ function renderBlock(
 		case 'blockquote':
 			return renderBlockquote(node as Blockquote, indentLevel, definitions, footnoteDefinitions);
 		case 'thematicBreak':
+			if (currentStyle.startsWith('redbook')) {
+				return indentLines('#pagebreak()', indentLevel);
+			}
 			return indentLines('#line(length: 100%, stroke: 0.6pt)', indentLevel);
 		case 'table':
 			return renderTable(node as Table, indentLevel, definitions, footnoteDefinitions);
