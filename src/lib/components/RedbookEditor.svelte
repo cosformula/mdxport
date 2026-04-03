@@ -9,6 +9,7 @@
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
   import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
+  import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
   import CardGallery from '$lib/components/CardGallery.svelte'
   import { REDBOOK_TEMPLATES } from '$lib/templates/redbook-templates'
 
@@ -38,6 +39,10 @@
   let leftPaneWidth = $state(50)
   let isResizing = $state(false)
   let isDragging = $state(false)
+
+  let editorMode = $state<'code' | 'wysiwyg'>(
+    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
+  )
 
   let style = $state<'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist'>(
     (browser &&
@@ -168,6 +173,7 @@
     localStorage.setItem('mdxport-redbook-style', style)
     localStorage.setItem('mdxport-card-font', font)
     localStorage.setItem('mdxport-card-columns', String(cardColumns))
+    localStorage.setItem('mdxport-editor-mode', editorMode)
   })
 
   // ========================================
@@ -572,6 +578,14 @@
       style="width: {leftPaneWidth}%"
     >
       <div class="editor-toolbar">
+        <div class="editor-mode-toggle">
+          <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
+            {lang === 'zh' ? '编辑' : 'Edit'}
+          </button>
+          <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
+            {lang === 'zh' ? '源码' : 'Code'}
+          </button>
+        </div>
         <select
           class="toolbar-select"
           onchange={(e) => {
@@ -589,7 +603,11 @@
           {/each}
         </select>
       </div>
-      <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
+      {#if editorMode === 'wysiwyg'}
+        <WysiwygEditor bind:markdown placeholder={t('placeholder')} />
+      {:else}
+        <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
+      {/if}
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
       {/if}
@@ -888,11 +906,38 @@
   .editor-toolbar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 4px 8px;
     background: var(--color-gray-50, #f9fafb);
     border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
     flex-shrink: 0;
     gap: 6px;
+  }
+
+  .editor-mode-toggle {
+    display: flex;
+    background: var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    padding: 1px;
+    gap: 1px;
+  }
+
+  .mode-toggle-btn {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--color-gray-500, #6b7280);
+    background: transparent;
+    transition: all 0.15s;
+  }
+
+  .mode-toggle-btn.active {
+    background: var(--color-white, #fff);
+    color: var(--color-gray-900, #111);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
   .toolbar-select {

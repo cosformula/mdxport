@@ -11,6 +11,7 @@
   import { useRegisterSW } from 'virtual:pwa-register/svelte'
 
   import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
+  import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
   import { PDF_TEMPLATES, type Template } from '$lib/templates/pdf-templates'
 
   import 'pdfjs-dist/web/pdf_viewer.css'
@@ -70,6 +71,10 @@
   let leftPaneWidth = $state(50)
   let isResizing = $state(false)
   let isDragging = $state(false)
+
+  let editorMode = $state<'code' | 'wysiwyg'>(
+    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
+  )
 
   // Style state (PDF only — no redbook styles)
   let style = $state(
@@ -327,6 +332,7 @@
   $effect(() => {
     if (!browser) return
     localStorage.setItem('mdxport-style', style)
+    localStorage.setItem('mdxport-editor-mode', editorMode)
   })
 
   // Auto-compile effect (debounce 450ms)
@@ -870,6 +876,14 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="editor-toolbar">
+        <div class="editor-mode-toggle">
+          <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
+            {lang === 'zh' ? '编辑' : 'Edit'}
+          </button>
+          <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
+            {lang === 'zh' ? '源码' : 'Code'}
+          </button>
+        </div>
         <div class="template-dropdown" onclick={(e) => e.stopPropagation()}>
           <button class="toolbar-btn" onclick={toggleTemplateMenu}>
             {lang === 'zh' ? '模板' : 'Templates'}
@@ -886,7 +900,11 @@
           {/if}
         </div>
       </div>
-      <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
+      {#if editorMode === 'wysiwyg'}
+        <WysiwygEditor bind:markdown placeholder={t('placeholder')} />
+      {:else}
+        <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
+      {/if}
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
       {/if}
@@ -1191,11 +1209,38 @@
   .editor-toolbar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 4px 8px;
     background: var(--color-gray-50, #f9fafb);
     border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
     flex-shrink: 0;
     gap: 6px;
+  }
+
+  .editor-mode-toggle {
+    display: flex;
+    background: var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    padding: 1px;
+    gap: 1px;
+  }
+
+  .mode-toggle-btn {
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--color-gray-500, #6b7280);
+    background: transparent;
+    transition: all 0.15s;
+  }
+
+  .mode-toggle-btn.active {
+    background: var(--color-white, #fff);
+    color: var(--color-gray-900, #111);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
   .toolbar-btn {
