@@ -668,12 +668,24 @@
 <!-- Main App -->
 <div
   class="app"
-  class:drop-zone-active={isDragging}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
   role="application"
 >
+  {#if isDragging}
+    <div class="drop-overlay">
+      <div class="drop-overlay-content">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <span>{lang === 'zh' ? '拖入 .md 文件' : 'Drop .md file here'}</span>
+      </div>
+    </div>
+  {/if}
+
   <!-- File Input (Hidden) -->
   <input
     type="file"
@@ -1022,6 +1034,31 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
+  }
+
+  .drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: rgba(255, 255, 255, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .drop-overlay-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: var(--color-gray-500, #6b7280);
+    font-size: 1rem;
+    font-weight: 500;
+    padding: 40px 60px;
+    border: 2px dashed var(--color-gray-300, #d1d5db);
+    border-radius: 16px;
+    background: var(--color-gray-50, #f9fafb);
   }
 
   /* ========================================

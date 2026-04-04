@@ -49,6 +49,7 @@
         defaultValue: body,
         features: {
           [Crepe.Feature.ImageBlock]: false,
+          [Crepe.Feature.BlockEdit]: !cardMode,
         },
         featureConfigs: {
           [Crepe.Feature.Placeholder]: { text: placeholder || 'Start writing...' },
