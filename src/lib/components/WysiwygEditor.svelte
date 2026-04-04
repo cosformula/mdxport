@@ -60,8 +60,10 @@
       crepe.on((listener) => {
         listener.markdownUpdated((_ctx, md, prevMd) => {
           if (md !== prevMd && !suppressUpdate) {
-            // Normalize *** to --- for consistent thematic breaks
-            const normalized = md.replace(/^\*\*\*$/gm, '---')
+            // Normalize thematic breaks: *** → ---, and de-indent nested ones
+            const normalized = md
+              .replace(/^\*\*\*$/gm, '---')
+              .replace(/^[ \t]+---$/gm, '---')
             markdown = currentFrontmatter + normalized
           }
         })

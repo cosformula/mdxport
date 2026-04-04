@@ -324,7 +324,7 @@ function renderBlock(
 		case 'blockquote':
 			return renderBlockquote(node as Blockquote, indentLevel, definitions, footnoteDefinitions);
 		case 'thematicBreak':
-			if (currentStyle.startsWith('redbook')) {
+			if (currentStyle.startsWith('redbook') && indentLevel === 0) {
 				return indentLines('#pagebreak()', indentLevel);
 			}
 			return indentLines('#line(length: 100%, stroke: 0.6pt)', indentLevel);
