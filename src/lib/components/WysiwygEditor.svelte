@@ -59,7 +59,9 @@
       crepe.on((listener) => {
         listener.markdownUpdated((_ctx, md, prevMd) => {
           if (md !== prevMd && !suppressUpdate) {
-            markdown = currentFrontmatter + md
+            // Normalize *** to --- for consistent thematic breaks
+            const normalized = md.replace(/^\*\*\*$/gm, '---')
+            markdown = currentFrontmatter + normalized
           }
         })
       })

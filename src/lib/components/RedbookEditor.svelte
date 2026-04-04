@@ -25,16 +25,7 @@
   // ========================================
   // State
   // ========================================
-  let markdown = $state('')
-  let hasInitialized = false
-
-  $effect(() => {
-    if (!hasInitialized) {
-      const templates = REDBOOK_TEMPLATES[lang]
-      markdown = templates[0]?.content ?? ''
-      hasInitialized = true
-    }
-  })
+  let markdown = $state(REDBOOK_TEMPLATES[lang]?.[0]?.content ?? '')
 
   let leftPaneWidth = $state(50)
   let isResizing = $state(false)
@@ -337,7 +328,6 @@
   }
 
   function insertPageBreak() {
-    // Append a page break at the end, or insert at a logical position
     const trimmed = markdown.trimEnd()
     markdown = trimmed + '\n\n---\n\n'
   }
@@ -388,17 +378,24 @@
   // ========================================
   // Drag & Drop Logic
   // ========================================
+  function hasFiles(e: DragEvent): boolean {
+    return e.dataTransfer?.types?.includes('Files') ?? false
+  }
+
   function handleDragOver(e: DragEvent) {
+    if (!hasFiles(e)) return
     e.preventDefault()
     isDragging = true
   }
 
   function handleDragLeave(e: DragEvent) {
+    if (!hasFiles(e)) return
     e.preventDefault()
     isDragging = false
   }
 
   function handleDrop(e: DragEvent) {
+    if (!hasFiles(e)) return
     e.preventDefault()
     isDragging = false
 

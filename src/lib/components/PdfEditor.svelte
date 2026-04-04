@@ -576,17 +576,24 @@
   // ========================================
   // Drag & Drop Logic
   // ========================================
+  function hasFiles(e: DragEvent): boolean {
+    return e.dataTransfer?.types?.includes('Files') ?? false
+  }
+
   function handleDragOver(e: DragEvent) {
+    if (!hasFiles(e)) return
     e.preventDefault()
     isDragging = true
   }
 
   function handleDragLeave(e: DragEvent) {
+    if (!hasFiles(e)) return
     e.preventDefault()
     isDragging = false
   }
 
   function handleDrop(e: DragEvent) {
+    if (!hasFiles(e)) return
     e.preventDefault()
     isDragging = false
 
