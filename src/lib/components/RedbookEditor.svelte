@@ -56,7 +56,7 @@
         | 'redbook-gradient'
         | 'redbook-forest'
         | 'redbook-blueprint')) ||
-      'redbook-knowledge',
+      'redbook-minimalist',
   )
 
   let font = $state<'sans' | 'serif'>(

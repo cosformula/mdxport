@@ -1,5 +1,5 @@
 // 小红书知识卡片风格 (Xiaohongshu Knowledge Card Style)
-// 特点：3:4 竖版卡片、大字号手机友好、暖白背景、小红书红强调色。
+// 特点：3:4 竖版卡片、暖白背景、小红书红强调色、顶部色条。
 
 #import "redbook-typography.typ": resolve-tokens
 
@@ -30,34 +30,46 @@
   let title-leading = tokens.at("title-leading")
   let list-spacing = tokens.at("list-spacing")
 
-  // 1) 页面设置：3:4 竖版卡片，暖白背景，无页码
+  let red = rgb("#D4564D")
+  let red-light = rgb("#F5E6E5")
+  let warm-bg = rgb("#FFFDF7")
+  let warm-panel = rgb("#F8F5F0")
+  let text-dark = rgb("#2D2D2D")
+
   set page(
     width: 105mm,
     height: 140mm,
-    margin: (x: 8mm, top: 10mm, bottom: 12mm),
-    fill: rgb("#FFFDF7"),
+    margin: (x: 10mm, top: 14mm, bottom: 14mm),
+    fill: warm-bg,
+    background: {
+      // Top accent bar
+      place(top + left,
+        rect(width: 105mm, height: 4pt, fill: red)
+      )
+      // Subtle warm circle bottom-left
+      place(bottom + left, dx: -15mm, dy: 20mm,
+        circle(radius: 40mm, fill: rgb("#F5E8E0").transparentize(60%))
+      )
+    },
   )
   set document(title: title, author: authors)
 
-  // 2) 字体栈
   set text(
     font: body-fonts,
     size: body-size,
     lang: lang,
-    fill: rgb("#2D2D2D"),
+    fill: text-dark,
   )
 
-  // 3) 段落：左对齐（窄版面 ragged-right 更易读）、宽松间距
   set par(
     justify: false,
     leading: paragraph-leading,
     first-line-indent: 0pt,
     spacing: paragraph-spacing,
   )
-  set list(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing, marker: [•])
+  set list(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing, marker: text(fill: red, [•]))
   set enum(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing)
 
-  // 4) 标题：加粗、紧凑层级
   show heading: it => {
     set text(
       weight: "bold",
@@ -68,19 +80,24 @@
     block(above: heading-above, below: heading-below, it)
   }
   show heading.where(level: 1): set text(size: heading-1-size)
-  show heading.where(level: 2): set text(size: heading-2-size)
+  show heading.where(level: 2): it => {
+    block(above: heading-above, below: heading-below, {
+      stack(dir: ltr, spacing: 0.4em,
+        rect(width: 3pt, height: 1em, fill: red, radius: 1.5pt),
+        it.body,
+      )
+    })
+  }
   show heading.where(level: 3): set text(size: heading-3-size)
 
-  // 5) 链接颜色：小红书红
-  show link: set text(fill: rgb("#D4564D"))
+  show link: set text(fill: red)
 
-  // 6) 引用块：左侧红色线 + 浅暖背景
   set quote(block: true)
   show quote: it => {
     set par(first-line-indent: 0pt)
     block(
-      fill: rgb("#F8F5F0"),
-      stroke: (left: 2.5pt + rgb("#D4564D")),
+      fill: red-light,
+      stroke: (left: 2.5pt + red),
       inset: (left: 0.8em, right: 0.8em, top: 0.5em, bottom: 0.5em),
       radius: 4pt,
       width: 100%,
@@ -88,17 +105,15 @@
     )
   }
 
-  // 7) 行内代码
   show raw.where(block: false): it => box(
-    fill: rgb("#F0EDE8"),
+    fill: warm-panel,
     inset: (x: 3pt, y: 1pt),
     radius: 2pt,
     it,
   )
 
-  // 8) 代码块：暖灰背景
   show raw.where(block: true): block.with(
-    fill: rgb("#F5F3EE"),
+    fill: warm-panel,
     inset: 10pt,
     radius: 6pt,
     width: 100%,
@@ -107,16 +122,14 @@
   show raw: set text(font: ("JetBrains Mono", "Fira Code", "Consolas", "DejaVu Sans Mono"), size: code-size)
   show raw.where(block: true): set par(leading: code-leading)
 
-  // 9) 表格：暖色调
   set table(
     stroke: (paint: rgb("#E0DDD8"), thickness: 0.5pt),
     inset: 6pt,
-    fill: (x, y) => if y == 0 { rgb("#F0EDE8") } else { none },
+    fill: (x, y) => if y == 0 { warm-panel } else { none },
   )
   show table: set par(justify: false, spacing: 0.5em)
   show table.cell.where(y: 0): set text(weight: "bold")
 
-  // 标题区
   if title != "" {
     block(width: 100%, inset: (bottom: 0.8em))[
       #set par(leading: title-leading)

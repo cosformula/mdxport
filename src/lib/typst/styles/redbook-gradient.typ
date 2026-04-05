@@ -1,5 +1,5 @@
 // 小红书渐变卡片风格 (Xiaohongshu Gradient Card Style)
-// 特点：柔和渐变背景、圆角元素、现代感强、适合生活/美妆类。
+// 特点：多层渐变背景、柔和色彩、圆角元素、现代感强、适合生活/美妆类。
 
 #import "redbook-typography.typ": resolve-tokens
 
@@ -30,14 +30,33 @@
   let title-leading = tokens.at("title-leading")
   let list-spacing = tokens.at("list-spacing")
 
+  let pink = rgb("#E8668A")
+  let purple = rgb("#C084FC")
+  let peach = rgb("#F9A8D4")
+
   set page(
     width: 105mm,
     height: 140mm,
-    margin: (x: 8mm, top: 10mm, bottom: 12mm),
+    margin: (x: 10mm, top: 12mm, bottom: 14mm),
     fill: rgb("#FFF5F5"),
-    background: place(bottom + right, dx: 20mm, dy: 20mm,
-      circle(radius: 60mm, fill: rgb("#FFE0EC").transparentize(60%))
-    ),
+    background: {
+      // Large soft blob bottom-right
+      place(bottom + right, dx: 15mm, dy: 15mm,
+        circle(radius: 55mm, fill: rgb("#FFE0EC").transparentize(55%))
+      )
+      // Secondary blob top-left
+      place(top + left, dx: -20mm, dy: -25mm,
+        circle(radius: 40mm, fill: purple.transparentize(88%))
+      )
+      // Small accent dot
+      place(top + right, dx: -12mm, dy: 16mm,
+        circle(radius: 3mm, fill: peach.transparentize(40%))
+      )
+      // Top gradient stripe
+      place(top + left,
+        rect(width: 105mm, height: 3pt, fill: gradient.linear(pink, purple, angle: 0deg))
+      )
+    },
   )
   set document(title: title, author: authors)
 
@@ -54,7 +73,7 @@
     first-line-indent: 0pt,
     spacing: paragraph-spacing,
   )
-  set list(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing, marker: text(fill: rgb("#E8668A"), [●]))
+  set list(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing, marker: text(fill: pink, [●]))
   set enum(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing)
 
   show heading: it => {
@@ -67,7 +86,14 @@
     block(above: heading-above, below: heading-below, it)
   }
   show heading.where(level: 1): set text(size: heading-1-size)
-  show heading.where(level: 2): set text(size: heading-2-size)
+  show heading.where(level: 2): it => {
+    block(above: heading-above, below: heading-below, {
+      stack(dir: ltr, spacing: 0.4em,
+        rect(width: 3pt, height: 1em, fill: gradient.linear(pink, purple), radius: 1.5pt),
+        it.body,
+      )
+    })
+  }
   show heading.where(level: 3): set text(size: heading-3-size)
 
   show link: set text(fill: rgb("#D94F7A"))
@@ -77,7 +103,7 @@
     set par(first-line-indent: 0pt)
     block(
       fill: rgb("#FFF0F5"),
-      stroke: (left: 3pt + gradient.linear(rgb("#E8668A"), rgb("#C084FC"))),
+      stroke: (left: 3pt + gradient.linear(pink, purple)),
       inset: (left: 0.8em, right: 0.8em, top: 0.5em, bottom: 0.5em),
       radius: 6pt,
       width: 100%,
@@ -119,7 +145,7 @@
         #text(author-size, fill: rgb("#A08090"), authors.join(" · "))
       ]
     ]
-    line(length: 60%, stroke: 1.5pt + gradient.linear(rgb("#E8668A"), rgb("#C084FC")))
+    line(length: 60%, stroke: 1.5pt + gradient.linear(pink, purple))
     v(0.6em)
   }
 
