@@ -4,39 +4,26 @@
   import { onMount } from 'svelte'
   import { getPdfjs } from '$lib/pdf/pdfjs'
   import { markdownToTypst } from '$lib/pipeline/markdownToTypst'
-  import { markdownToHtml } from '$lib/pipeline/markdownToHtml'
+  import type { TypstStyleId } from '$lib/pipeline/markdownToTypst'
   import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
-  import { useRegisterSW } from 'virtual:pwa-register/svelte'
-  import type { RegisterSWOptions } from 'virtual:pwa-register/svelte'
-
   import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
-  import StatusHint from '$lib/components/StatusHint.svelte'
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
+  import CardGallery from '$lib/components/CardGallery.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
-  import { PDF_TEMPLATES } from '$lib/templates/pdf-templates'
+  import { SLIDES_TEMPLATES } from '$lib/templates/slides-templates'
   import { documentStore } from '$lib/stores/documentStore.svelte'
-
-  import 'pdfjs-dist/web/pdf_viewer.css'
-
-  import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist'
-  import type { PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs'
+  import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
 
   // Props
   interface Props {
     lang: UILang
     seoTitle: string
     seoDescription: string
-    initialMarkdown?: string
   }
 
-  let {
-    lang = 'en',
-    seoTitle,
-    seoDescription,
-    initialMarkdown = '',
-  }: Props = $props()
+  let { lang = 'en', seoTitle, seoDescription }: Props = $props()
 
   // ========================================
   // State
@@ -45,7 +32,11 @@
   let hasInitializedMarkdown = false
   let markdownEditor = $state<MarkdownEditor | null>(null)
   let wysiwygEditor = $state<WysiwygEditor | null>(null)
-  let imageInputEl = $state<HTMLInputElement | null>(null)
+  let imageInput = $state<HTMLInputElement | null>(null)
+
+  let leftPaneWidth = $state(50)
+  let isResizing = $state(false)
+  let isDragging = $state(false)
 
   type LocalImageAsset = {
     bytes: Uint8Array
@@ -54,42 +45,54 @@
 
   let imageAssets = $state<Record<string, LocalImageAsset>>({})
 
-  // PWA Service Worker
-  const swOptions: RegisterSWOptions = {
-    onRegistered(swr) {
-      console.log('SW registered: ', swr)
-      if (swr) {
-        setInterval(
-          () => {
-            console.log('Checking for SW update...')
-            swr.update()
-          },
-          60 * 60 * 1000,
-        )
-      }
-    },
-    onRegisterError(error) {
-      console.log('SW registration error', error)
-    },
-  }
-  const { needRefresh, updateServiceWorker } = useRegisterSW(swOptions)
+  let editorMode = $state<'code' | 'wysiwyg'>(
+    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
+  )
+
+  let style = $state<'slides-modern' | 'slides-dark' | 'slides-minimal'>(
+    (browser &&
+      (localStorage.getItem('mdxport-slides-style') as
+        | 'slides-modern'
+        | 'slides-dark'
+        | 'slides-minimal')) ||
+      'slides-modern',
+  )
+
+  let font = $state<'sans' | 'serif'>(
+    (browser && (localStorage.getItem('mdxport-slides-font') as 'sans' | 'serif')) ||
+      'sans',
+  )
+
+  // Compilation state
+  let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
+  let errorMessage: string | null = $state(null)
+  let pdfBytes = $state<Uint8Array | null>(null)
+
+  // Loading state
+  let isLoading = $state(true)
+
+  // Worker client
+  let client = $state<TypstWorkerClient | null>(null)
+
+  // Auto-compile
+  let compileSeq = 0
+  let hasEverCompiled = false
+  let autoPreviewTimer: number | null = null
+
+  // Mobile state
+  let activeMobileTab = $state<'editor' | 'preview'>('editor')
+  let isMenuOpen = $state(false)
 
   $effect(() => {
     if (hasInitializedMarkdown) return
     if (!browser) return
     hasInitializedMarkdown = true
     ;(async () => {
-      const hasSeedMarkdown = initialMarkdown.trim() !== ''
-      await documentStore.init({ restoreCurrent: !hasSeedMarkdown })
-      if (hasSeedMarkdown) {
-        documentStore.setCurrentDocument(null, false)
-        markdown = initialMarkdown
-        return
-      }
+      await documentStore.init()
       // Try loading current doc if it belongs to this mode
       if (documentStore.currentDocId) {
         const currentDoc = documentStore.recentDocuments.find((d) => d.id === documentStore.currentDocId)
-        if (currentDoc?.mode === 'pdf') {
+        if (currentDoc?.mode === 'slides') {
           const content = await documentStore.loadDocument(documentStore.currentDocId)
           if (content !== null) {
             markdown = content
@@ -97,352 +100,111 @@
           }
         }
       }
-      // Check if there are recent PDF docs
-      const pdfDocs = documentStore.recentDocuments.filter((d) => d.mode === 'pdf')
-      if (pdfDocs.length > 0) {
-        const content = await documentStore.loadDocument(pdfDocs[0].id)
+      // Check recent slides docs
+      const slidesDocs = documentStore.recentDocuments.filter((d) => d.mode === 'slides')
+      if (slidesDocs.length > 0) {
+        const content = await documentStore.loadDocument(slidesDocs[0].id)
         if (content !== null) {
           markdown = content
           return
         }
       }
-      // Create new doc from initial markdown or template
-      const defaultContent = initialMarkdown || PDF_TEMPLATES[lang]?.[0]?.content || ''
-      const { content } = await documentStore.createDocument('pdf', defaultContent)
+      // Create from template
+      const defaultContent = SLIDES_TEMPLATES[lang]?.[0]?.content ?? ''
+      const { content } = await documentStore.createDocument('slides', defaultContent)
       markdown = content
     })()
   })
 
-  // Layout state
-  let leftPaneWidth = $state(50)
-  let isResizing = $state(false)
-  let isDragging = $state(false)
-
-  let editorMode = $state<'code' | 'wysiwyg'>(
-    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
-  )
-
-  // Style state (PDF only — no redbook styles)
-  let style = $state(
-    (browser && localStorage.getItem('mdxport-style')) || 'modern-tech',
-  ) as 'modern-tech' | 'classic-editorial'
-
-  const STYLE_OPTIONS = [
-    { id: 'modern-tech' as const, label: { zh: '现代风', en: 'Modern' } },
-    { id: 'classic-editorial' as const, label: { zh: '经典风', en: 'Classic' } },
-  ]
-
-  let templates = $derived(PDF_TEMPLATES[lang] || [])
-
-  // Mobile state
-  let activeMobileTab = $state<'editor' | 'preview'>('editor')
-  let isMenuOpen = $state(false)
-
-  function toggleMenu(e?: Event) {
-    if (e) {
-      e.stopPropagation()
-      e.preventDefault()
-    }
-    isMenuOpen = !isMenuOpen
-  }
-
-  function closeMenu() {
-    isMenuOpen = false
-  }
-
-  // Derived filename
-  let filename = $derived.by(() => {
-    const h1Match = markdown.match(/^#\s+(.+)$/m)
-    let base = h1Match ? h1Match[1].trim() : 'Untitled'
-
-    base = base.replace(/[\\/:*?"<>|\x00-\x1F]/g, ' ')
-    base = base.replace(/\s+/g, ' ').trim()
-
-    if (!base) base = 'Untitled'
-
-    const MAX_LEN = 50
-    if (base.length > MAX_LEN) {
-      base = base.substring(0, MAX_LEN).trim()
-    }
-
-    return `${base} - mdxport.com`
-  })
-
-  // SEO Content
-  let seoHtml = $derived(markdownToHtml(initialMarkdown || ''))
-
-  // Compilation state
-  let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
-  let errorMessage: string | null = $state(null)
-  let pdfBytes = $state<Uint8Array | null>(null)
-  let pdfUrl = $state<string | null>(null)
-
-  // Loading state
-  let isLoading = $state(true)
-  let loadingText = $state('Initializing...')
-
-  // PDF Viewer state
-  let client = $state<TypstWorkerClient | null>(null)
-  let pdfDoc = $state<PDFDocumentProxy | null>(null)
-  let pdfPages = $state(0)
-  let pdfPage = $state(1)
-  let pdfScale = $state(1)
-  let pdfViewer = $state<PDFViewer | null>(null)
-  let pdfLinkService = $state<PDFLinkService | null>(null)
-  let previewContainerEl = $state<HTMLDivElement | null>(null)
-  let pdfViewerContainerElA = $state<HTMLDivElement | null>(null)
-  let pdfViewerContainerElB = $state<HTMLDivElement | null>(null)
-  let pdfViewerElA = $state<HTMLDivElement | null>(null)
-  let pdfViewerElB = $state<HTMLDivElement | null>(null)
-  let pdfLoadTask: PDFDocumentLoadingTask | null = null
-  let pdfLoadSeq = 0
-  let showPreviewCompilingHint = $state(false)
-  let compilingHintTimer: number | null = null
-  let activePreviewSlot = $state<0 | 1>(0)
-
-  type ViewerRuntime = {
-    viewer: PDFViewer | null
-    linkService: PDFLinkService | null
-    eventBus: {
-      on: (name: string, cb: (event: any) => void) => void
-      off: (name: string, cb: (event: any) => void) => void
-    } | null
-    doc: PDFDocumentProxy | null
-  }
-
-  const viewerRuntimes: [ViewerRuntime, ViewerRuntime] = [
-    { viewer: null, linkService: null, eventBus: null, doc: null },
-    { viewer: null, linkService: null, eventBus: null, doc: null },
-  ]
-
-  // Auto-compile
-  let compileSeq = 0
-  let hasEverCompiled = false
-  let autoPreviewTimer: number | null = null
-
+  // ========================================
   // UI Text
+  // ========================================
   const UI = {
     zh: {
-      new: '新建',
       template: '模板',
-      export: '导出 PDF',
+      exportPdf: '导出 PDF',
       loading: '正在初始化渲染引擎...',
       generating: '生成中...',
       langSwitch: 'EN',
-      placeholder: '在这里输入 Markdown...',
+      placeholder: '在这里输入 Markdown，用 --- 分隔幻灯片...',
     },
     en: {
-      new: 'New',
       template: 'Template',
-      export: 'Export PDF',
+      exportPdf: 'Export PDF',
       loading: 'Initializing rendering engine...',
       generating: 'Generating...',
       langSwitch: '中',
-      placeholder: 'Type Markdown here...',
+      placeholder: 'Type Markdown here, use --- to separate slides...',
     },
-  }
-
-  const SEO = {
-    zh: { ogLocale: 'zh_CN' },
-    en: { ogLocale: 'en_US' },
   }
 
   function t<K extends keyof (typeof UI)['zh']>(key: K): string {
     return UI[lang][key]
   }
 
-  function getPreviewContainer(slot: 0 | 1): HTMLDivElement | null {
-    return slot === 0 ? pdfViewerContainerElA : pdfViewerContainerElB
-  }
-
-  function getPreviewViewer(slot: 0 | 1): HTMLDivElement | null {
-    return slot === 0 ? pdfViewerElA : pdfViewerElB
-  }
-
-  function getInactivePreviewSlot(): 0 | 1 {
-    return activePreviewSlot === 0 ? 1 : 0
-  }
-
-  function getActivePreviewContainer(): HTMLDivElement | null {
-    return getPreviewContainer(activePreviewSlot)
-  }
-
-  function waitForFirstRenderedPage(slot: 0 | 1): Promise<void> {
-    const eventBus = viewerRuntimes[slot].eventBus
-    if (!eventBus) return Promise.resolve()
-
-    return new Promise((resolve) => {
-      const onRendered = () => {
-        eventBus.off('pagerendered', onRendered)
-        resolve()
-      }
-      eventBus.on('pagerendered', onRendered)
-    })
-  }
-
-  $effect(() => {
-    if (!browser) return
-
-    if (compilingHintTimer !== null) {
-      window.clearTimeout(compilingHintTimer)
-      compilingHintTimer = null
+  // ========================================
+  // Derived
+  // ========================================
+  let filename = $derived.by(() => {
+    const h1Match = markdown.match(/^#\s+(.+)$/m)
+    let base = h1Match ? h1Match[1].trim() : 'Untitled'
+    base = base.replace(/[\\/:*?"<>|\x00-\x1F]/g, ' ')
+    base = base.replace(/\s+/g, ' ').trim()
+    if (!base) base = 'Untitled'
+    const MAX_LEN = 50
+    if (base.length > MAX_LEN) {
+      base = base.substring(0, MAX_LEN).trim()
     }
-
-    showPreviewCompilingHint = false
-
-    if (status === 'compiling' && !!pdfBytes) {
-      compilingHintTimer = window.setTimeout(() => {
-        showPreviewCompilingHint = true
-      }, 180)
-    }
-
-    return () => {
-      if (compilingHintTimer !== null) {
-        window.clearTimeout(compilingHintTimer)
-        compilingHintTimer = null
-      }
-    }
+    return `${base} - mdxport.com`
   })
 
   // ========================================
   // Lifecycle
   // ========================================
   onMount(() => {
-    // Save language preference
     try {
       localStorage.setItem('mdxport_lang', lang)
     } catch {
       // ignore
     }
 
-    loadingText = t('loading')
     client = getSharedTypstWorkerClient()
 
     let aborted = false
 
     void (async () => {
-      const containers: [HTMLDivElement | null, HTMLDivElement | null] = [
-        pdfViewerContainerElA,
-        pdfViewerContainerElB,
-      ]
-      const viewers: [HTMLDivElement | null, HTMLDivElement | null] = [
-        pdfViewerElA,
-        pdfViewerElB,
-      ]
-      if (containers.some((container) => !container) || viewers.some((viewer) => !viewer)) {
-        return
-      }
-
       await getPdfjs()
-      const mod = await import('pdfjs-dist/web/pdf_viewer.mjs')
       if (aborted) return
 
-      ;([0, 1] as const).forEach((slot) => {
-        const eventBus = new mod.EventBus()
-        const linkService = new mod.PDFLinkService({ eventBus })
-        const pdfViewerInstance = new mod.PDFViewer({
-          container: containers[slot]!,
-          viewer: viewers[slot]!,
-          eventBus,
-          linkService,
-        })
-        linkService.setViewer(pdfViewerInstance)
-
-        eventBus.on('pagesinit', () => {
-          pdfViewerInstance.currentScaleValue = 'page-width'
-        })
-        eventBus.on('pagechanging', (event: { pageNumber: number }) => {
-          if (slot !== activePreviewSlot) return
-          pdfPage = event.pageNumber
-        })
-        eventBus.on('scalechanging', (event: { scale: number }) => {
-          if (slot !== activePreviewSlot) return
-          pdfScale = event.scale
-        })
-
-        viewerRuntimes[slot].viewer = pdfViewerInstance
-        viewerRuntimes[slot].linkService = linkService
-        viewerRuntimes[slot].eventBus = eventBus
-      })
-
-      pdfLinkService = viewerRuntimes[activePreviewSlot].linkService
-      pdfViewer = viewerRuntimes[activePreviewSlot].viewer
-
-      // Hide loading overlay
       isLoading = false
 
-      // Trigger first compile
-      void compile(markdown, style, lang)
+      void compile(markdown, style, lang, font)
     })().catch((error) => {
       console.error(error)
       isLoading = false
     })
 
-    // Close menus on click outside
     const handleClickOutside = () => {
       closeMenu()
     }
     window.addEventListener('click', handleClickOutside)
 
-    // Debounced resize handler for auto-fit
-    let resizeTimer: number | null = null
-    const handleResize = () => {
-      if (resizeTimer) clearTimeout(resizeTimer)
-      resizeTimer = window.setTimeout(() => {
-        fitWidth()
-      }, 200)
-    }
-    window.addEventListener('resize', handleResize)
-
     return () => {
       aborted = true
       window.removeEventListener('click', handleClickOutside)
-      window.removeEventListener('resize', handleResize)
-      if (resizeTimer) clearTimeout(resizeTimer)
       for (const asset of Object.values(imageAssets)) {
         URL.revokeObjectURL(asset.objectUrl)
       }
-      pdfLoadTask?.destroy()
-      for (const runtime of viewerRuntimes) {
-        void runtime.doc?.destroy()
-        runtime.doc = null
-      }
-      pdfDoc = null
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
     }
   })
 
-  // Track previous language to detect changes
-  let prevLang: UILang | null = null
-
+  // ========================================
+  // Persist preferences
+  // ========================================
   $effect(() => {
     if (!browser) return
-    const currentLang = lang
-
-    // Set html lang attribute
-    document.documentElement.lang = currentLang
-
-    // Save language preference
-    try {
-      localStorage.setItem('mdxport_lang', currentLang)
-    } catch {
-      // ignore
-    }
-
-    // Update default content when language changes
-    if (prevLang !== null && prevLang !== currentLang) {
-      const oldDefault = PDF_TEMPLATES[prevLang]?.[0]?.content || ''
-      if (markdown === oldDefault || markdown.trim() === '') {
-        markdown = PDF_TEMPLATES[currentLang]?.[0]?.content || ''
-      }
-    }
-    prevLang = currentLang
-  })
-
-  // Persist style to localStorage
-  $effect(() => {
-    if (!browser) return
-    localStorage.setItem('mdxport-style', style)
+    localStorage.setItem('mdxport-slides-style', style)
+    localStorage.setItem('mdxport-slides-font', font)
     localStorage.setItem('mdxport-editor-mode', editorMode)
   })
 
@@ -452,7 +214,37 @@
     documentStore.autoSave(documentStore.currentDocId, markdown)
   })
 
+  // ========================================
+  // Language change
+  // ========================================
+  let prevLang: UILang | null = null
+
+  $effect(() => {
+    if (!browser) return
+    const currentLang = lang
+
+    document.documentElement.lang = currentLang
+
+    try {
+      localStorage.setItem('mdxport_lang', currentLang)
+    } catch {
+      // ignore
+    }
+
+    if (prevLang !== null && prevLang !== currentLang) {
+      const oldTemplates = SLIDES_TEMPLATES[prevLang]
+      const isOldDefault = oldTemplates.some((tmpl) => tmpl.content === markdown)
+      if (isOldDefault || markdown.trim() === '') {
+        const newTemplates = SLIDES_TEMPLATES[currentLang]
+        markdown = newTemplates[0]?.content ?? ''
+      }
+    }
+    prevLang = currentLang
+  })
+
+  // ========================================
   // Auto-compile effect (debounce 450ms)
+  // ========================================
   $effect(() => {
     if (!browser) return
     if (!client) return
@@ -461,12 +253,13 @@
     const md = markdown
     const _style = style
     const _lang = lang
+    const _font = font
 
     if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
 
     const delay = hasEverCompiled ? 450 : 0
     autoPreviewTimer = window.setTimeout(() => {
-      void compile(md, _style, _lang)
+      void compile(md, _style, _lang, _font)
     }, delay)
 
     return () => {
@@ -474,118 +267,14 @@
     }
   })
 
-  // Auto-fit on mobile tab switch
-  $effect(() => {
-    if (!browser) return
-    if (activeMobileTab === 'preview') {
-      setTimeout(() => {
-        fitWidth()
-      }, 50)
-    }
-  })
-
-  // PDF loading effect (pdfBytes -> pdfDoc)
-  $effect(() => {
-    if (!browser) return
-    const bytes = pdfBytes
-    if (!bytes) {
-      pdfLoadTask?.destroy()
-      for (const runtime of viewerRuntimes) {
-        void runtime.doc?.destroy()
-        runtime.doc = null
-      }
-      pdfDoc = null
-      pdfPages = 0
-      pdfPage = 1
-      pdfScale = 1
-      return
-    }
-
-    const seq = ++pdfLoadSeq
-
-    void (async () => {
-      pdfLoadTask?.destroy()
-
-      const pdfjs = await getPdfjs()
-      const task: PDFDocumentLoadingTask = pdfjs.getDocument({ data: bytes })
-      pdfLoadTask = task
-
-      const doc: PDFDocumentProxy = await task.promise
-      if (seq !== pdfLoadSeq) {
-        void doc.destroy()
-        return
-      }
-
-      const nextSlot = getInactivePreviewSlot()
-      const previousSlot = activePreviewSlot
-      const nextRuntime = viewerRuntimes[nextSlot]
-      const previousRuntime = viewerRuntimes[previousSlot]
-
-      // Save scroll position from current active container
-      const prevContainer = previousSlot === 0 ? pdfViewerContainerElA : pdfViewerContainerElB
-      const savedScrollTop = prevContainer?.scrollTop ?? 0
-      const prevScrollHeight = prevContainer?.scrollHeight ?? 1
-
-      if (!nextRuntime.viewer || !nextRuntime.linkService) {
-        void doc.destroy()
-        return
-      }
-
-      void nextRuntime.doc?.destroy()
-      nextRuntime.doc = doc
-
-      nextRuntime.linkService.setDocument(doc)
-      nextRuntime.viewer.setDocument(doc)
-      await waitForFirstRenderedPage(nextSlot)
-
-      if (seq !== pdfLoadSeq) {
-        if (nextRuntime.doc === doc) {
-          nextRuntime.doc = null
-        }
-        void doc.destroy()
-        return
-      }
-
-      // Restore scroll position BEFORE swapping visibility to avoid flicker
-      const nextContainer = nextSlot === 0 ? pdfViewerContainerElA : pdfViewerContainerElB
-      if (nextContainer && prevScrollHeight > 0) {
-        const nextScrollHeight = nextContainer.scrollHeight
-        if (nextScrollHeight > 0) {
-          const scrollRatio = savedScrollTop / prevScrollHeight
-          nextContainer.scrollTop = scrollRatio * nextScrollHeight
-        }
-      }
-
-      // Now swap — the new container is already at the right scroll position
-      activePreviewSlot = nextSlot
-      pdfDoc = doc
-      pdfPages = doc.numPages
-      pdfLinkService = nextRuntime.linkService
-      pdfViewer = nextRuntime.viewer
-      const restoredPage = nextRuntime.viewer?.currentPageNumber ?? 1
-      pdfPage = Math.max(1, Math.min(restoredPage, doc.numPages))
-      void previousRuntime.doc?.destroy()
-      previousRuntime.doc = null
-    })().catch((error) => {
-      console.error(error)
-    })
-  })
-
   // ========================================
-  // Functions
+  // Compile function
   // ========================================
-  function goToPage(nextPage: number) {
-    if (!pdfDoc || !pdfViewer) return
-    const clamped = Math.max(1, Math.min(nextPage, pdfPages || 1))
-    if (clamped === pdfPage) return
-    pdfPage = clamped
-    pdfViewer.currentPageNumber = clamped
-  }
-
   async function compile(
     md: string,
-    nextStyle: typeof style,
+    nextStyle: TypstStyleId,
     docLang: UILang,
+    compileFont: 'sans' | 'serif' = 'sans',
   ) {
     if (!client) return
     hasEverCompiled = true
@@ -595,7 +284,6 @@
     errorMessage = null
 
     try {
-      // Pre-process Mermaid blocks
       let processedMd = md
       const images: Record<string, Uint8Array> = {}
 
@@ -609,14 +297,14 @@
         for (const [index, match] of matches.entries()) {
           const [fullMatch, code] = match
           const id = `mermaid-${index}`
-          const filename_svg = `${id}.svg`
+          const mermaidFilename = `${id}.svg`
 
           try {
             const svg = await renderMermaidToSvg(code, id)
-            images[filename_svg] = svg
+            images[mermaidFilename] = svg
 
             newContent += md.slice(lastIndex, match.index)
-            newContent += `![Mermaid Diagram](${filename_svg})`
+            newContent += `![Mermaid Diagram](${mermaidFilename})`
             lastIndex = (match.index || 0) + fullMatch.length
           } catch (e) {
             console.error('Mermaid render failed', e)
@@ -636,12 +324,12 @@
       const mainTypst = markdownToTypst(processedMd, {
         style: nextStyle,
         lang: docLang,
-        font: 'sans',
+        font: compileFont,
       })
       // @ts-ignore
       const pdfData = await client.compilePdf(mainTypst, images)
       if (seq !== compileSeq) return
-      setPdfPreview(pdfData.pdf)
+      pdfBytes = pdfData.pdf
       status = 'done'
     } catch (error) {
       if (seq !== compileSeq) return
@@ -650,73 +338,37 @@
     }
   }
 
-  function setPdfPreview(bytes: Uint8Array<ArrayBuffer>) {
-    pdfBytes = bytes
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl)
-    const blob = new Blob([bytes], { type: 'application/pdf' })
-    pdfUrl = URL.createObjectURL(blob)
-  }
-
+  // ========================================
+  // Download PDF
+  // ========================================
   function downloadPdf() {
-    if (!pdfUrl) return
+    if (!pdfBytes) return
+    const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = pdfUrl
-    a.download = filename + '.pdf'
+    a.href = url
+    a.download = `${filename}.pdf`
     a.click()
+    URL.revokeObjectURL(url)
   }
 
-  function openPdfNewTab() {
-    if (!pdfUrl) return
-    window.open(pdfUrl, '_blank')
+  function openImagePicker() {
+    imageInput?.click()
   }
 
-  let fileInputEl = $state<HTMLInputElement | null>(null)
-
-  function handleOpenFile() {
-    fileInputEl?.click()
-  }
-
-  function handleOpenImage() {
-    imageInputEl?.click()
-  }
-
-  function onFileSelected(e: Event) {
-    const target = e.target as HTMLInputElement
-    const files = target.files
-    if (!files || files.length === 0) return
-
-    const file = files[0]
-    const reader = new FileReader()
-    reader.onload = (evt) => {
-      const content = evt.target?.result
-      if (typeof content === 'string') {
-        markdown = content
-      }
+  function insertPageBreak() {
+    const insertion = `\n\n---\n\n`
+    if (editorMode === 'code' && markdownEditor?.insertTextAtSelection(insertion)) {
+      return
     }
-    reader.readAsText(file)
-
-    // Reset value so same file can be selected again
-    target.value = ''
-  }
-
-  function getMarkdownImportFile(files: FileList): File | null {
-    for (const file of files) {
-      if (
-        file.name.endsWith('.md') ||
-        file.name.endsWith('.markdown') ||
-        file.name.endsWith('.txt')
-      ) {
-        return file
-      }
+    if (editorMode === 'wysiwyg' && wysiwygEditor?.insertMarkdownAtSelection(insertion)) {
+      return
     }
-    return null
-  }
 
-  function getImageDropFile(files: FileList): File | null {
-    for (const file of files) {
-      if (file.type.startsWith('image/')) return file
-    }
-    return null
+    const trimmed = markdown.trimEnd()
+    markdown = trimmed
+      ? `${trimmed}${insertion}`
+      : `---\n\n`
   }
 
   function getImageExtension(file: File): string {
@@ -812,7 +464,7 @@
     }
   }
 
-  async function onImageSelected(e: Event) {
+  async function handleImageInputChange(e: Event) {
     const target = e.target as HTMLInputElement
     const file = target.files?.[0]
     target.value = ''
@@ -820,21 +472,24 @@
     await insertImageFile(file)
   }
 
-  function handleHelp() {
-    const defaultContent = PDF_TEMPLATES[lang]?.[0]?.content || ''
-    if (markdown.trim() !== '' && markdown !== defaultContent) {
-      const msg =
-        lang === 'zh'
-          ? '这将覆盖当前内容，确定吗？'
-          : 'This will overwrite current content. Continue?'
-      if (!confirm(msg)) return
-    }
-    markdown = defaultContent
-  }
-
+  // ========================================
+  // Navigation helpers
+  // ========================================
   function switchLang() {
     const targetLang = lang === 'zh' ? 'en' : 'zh'
-    void goto(`/${targetLang}/`)
+    void goto(`/${targetLang}/slides/`)
+  }
+
+  function toggleMenu(e?: Event) {
+    if (e) {
+      e.stopPropagation()
+      e.preventDefault()
+    }
+    isMenuOpen = !isMenuOpen
+  }
+
+  function closeMenu() {
+    isMenuOpen = false
   }
 
   // ========================================
@@ -849,7 +504,8 @@
 
   function onResize(e: MouseEvent) {
     if (!isResizing) return
-    const newWidth = (e.clientX / window.innerWidth) * 100
+    const containerWidth = window.innerWidth
+    const newWidth = (e.clientX / containerWidth) * 100
     leftPaneWidth = Math.min(Math.max(newWidth, 20), 80)
   }
 
@@ -864,6 +520,26 @@
   // ========================================
   function hasFiles(e: DragEvent): boolean {
     return e.dataTransfer?.types?.includes('Files') ?? false
+  }
+
+  function getMarkdownImportFile(files: FileList): File | null {
+    for (const file of files) {
+      if (
+        file.name.endsWith('.md') ||
+        file.name.endsWith('.markdown') ||
+        file.name.endsWith('.txt')
+      ) {
+        return file
+      }
+    }
+    return null
+  }
+
+  function getImageDropFile(files: FileList): File | null {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) return file
+    }
+    return null
   }
 
   function handleDragOver(e: DragEvent) {
@@ -918,43 +594,11 @@
       return
     }
   }
-
-  function fitWidth() {
-    const container = getActivePreviewContainer()
-    if (!pdfViewer || !container) return
-    if (container.offsetParent === null) return
-    pdfViewer.currentScaleValue = 'page-width'
-  }
-
-  // ResizeObserver for auto-fit
-  $effect(() => {
-    if (!previewContainerEl || !browser) return
-    const observer = new ResizeObserver(() => {
-      fitWidth()
-    })
-    observer.observe(previewContainerEl)
-    return () => observer.disconnect()
-  })
 </script>
 
 <svelte:head>
   <title>{seoTitle}</title>
   <meta name="description" content={seoDescription} />
-
-  <!-- Open Graph -->
-  <meta property="og:title" content={seoTitle} />
-  <meta property="og:description" content={seoDescription} />
-  <meta property="og:type" content="website" />
-  <meta property="og:locale" content={SEO[lang].ogLocale} />
-  <meta
-    property="og:locale:alternate"
-    content={lang === 'zh' ? 'en_US' : 'zh_CN'}
-  />
-
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content={seoTitle} />
-  <meta name="twitter:description" content={seoDescription} />
 </svelte:head>
 
 <!-- Loading Overlay -->
@@ -963,7 +607,7 @@
   <div class="loading-progress">
     <div class="loading-progress-bar"></div>
   </div>
-  <div class="loading-text">{loadingText}</div>
+  <div class="loading-text">{t('loading')}</div>
 </div>
 
 <!-- Main App -->
@@ -987,23 +631,6 @@
       </div>
     </div>
   {/if}
-
-  <!-- File Input (Hidden) -->
-  <input
-    type="file"
-    accept=".md,.markdown,.txt"
-    style="display: none;"
-    bind:this={fileInputEl}
-    onchange={onFileSelected}
-  />
-  <input
-    type="file"
-    accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
-    class="sr-only"
-    bind:this={imageInputEl}
-    onchange={onImageSelected}
-  />
-
   <!-- Navbar -->
   <nav class="navbar">
     <div class="navbar-left">
@@ -1011,14 +638,14 @@
         <img src="/logo.png" alt="MDXport" class="logo-img" />
       </a>
       <div class="mode-toggle hidden-mobile">
-        <span class="mode-toggle-item active">PDF</span>
+        <a href="/{lang}/" class="mode-toggle-item">PDF</a>
         <a href="/{lang}/redbook/" class="mode-toggle-item">{lang === 'zh' ? '卡片' : 'Card'}</a>
-        <a href="/{lang}/slides/" class="mode-toggle-item">{lang === 'zh' ? '幻灯片' : 'Slides'}</a>
+        <span class="mode-toggle-item active">{lang === 'zh' ? '幻灯片' : 'Slides'}</span>
       </div>
       <DocumentMenu
         {lang}
-        mode="pdf"
-        templates={PDF_TEMPLATES[lang] || []}
+        mode="slides"
+        templates={SLIDES_TEMPLATES[lang] || []}
         currentContent={markdown}
         onDocumentLoad={(content) => { markdown = content }}
       />
@@ -1029,7 +656,7 @@
         onclick={downloadPdf}
         disabled={!pdfBytes || status === 'compiling'}
       >
-        {status === 'compiling' ? t('generating') : t('export')}
+        {status === 'compiling' ? t('generating') : t('exportPdf')}
       </button>
 
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1051,31 +678,6 @@
 
         {#if isMenuOpen}
           <div class="dropdown-menu">
-            <button
-              class="menu-item"
-              onclick={() => { openPdfNewTab(); closeMenu() }}
-              disabled={!pdfUrl || status === 'compiling'}
-            >
-              <span class="menu-icon">🌐</span>
-              {lang === 'zh' ? '在新页预览 PDF' : 'Preview PDF in New Tab'}
-            </button>
-
-            <button
-              class="menu-item"
-              onclick={() => { handleOpenFile(); closeMenu() }}
-            >
-              <span class="menu-icon">📂</span>
-              {lang === 'zh' ? '打开本地文件' : 'Open Local File'}
-            </button>
-
-            <button
-              class="menu-item"
-              onclick={() => { handleHelp(); closeMenu() }}
-            >
-              <span class="menu-icon">❓</span>
-              {lang === 'zh' ? '查看帮助' : 'Help & Guide'}
-            </button>
-
             <button class="menu-item" onclick={switchLang}>
               <span class="menu-icon">🌐</span>
               {t('langSwitch') === '中' ? 'Switch to Chinese' : 'Switch to English'}
@@ -1091,34 +693,12 @@
               GitHub
             </a>
 
-            <a href="/{lang}/resources/" class="menu-item">
-              <span class="menu-icon">🛠️</span>
-              {lang === 'zh' ? '更多资源与工具' : 'Resources & Tools'}
-            </a>
-
             <div class="menu-divider"></div>
 
             <a href="mailto:cosformula@gmail.com" class="menu-item small" title={lang === 'zh' ? '联系我们' : 'Contact Us'}>
               <span class="menu-icon">✉️</span>
               {lang === 'zh' ? '联系我们' : 'Contact'}
             </a>
-            {#if $needRefresh}
-              <div class="menu-divider"></div>
-              <button
-                class="menu-item"
-                onclick={() => updateServiceWorker(true)}
-                style="color: var(--color-green-600);"
-              >
-                <span class="menu-icon">⚡</span>
-                {lang === 'zh' ? '更新应用' : 'Update Available'}
-              </button>
-            {:else}
-              <div class="menu-divider"></div>
-              <button class="menu-item small" disabled>
-                <span class="menu-icon">✓</span>
-                {lang === 'zh' ? '已是最新版本' : 'Latest Version'}
-              </button>
-            {/if}
           </div>
         {/if}
       </div>
@@ -1133,8 +713,6 @@
       class:mobile-hidden={activeMobileTab !== 'editor'}
       style="width: {leftPaneWidth}%"
     >
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="editor-toolbar">
         <div class="editor-toolbar-left">
           <div class="editor-mode-toggle">
@@ -1146,7 +724,16 @@
             </button>
           </div>
           <div class="toolbar-divider"></div>
-          <button class="toolbar-icon-btn" onclick={handleOpenImage} title={lang === 'zh' ? '插入图片' : 'Insert image'}>
+          <button class="toolbar-icon-btn" onclick={insertPageBreak} title={lang === 'zh' ? '插入新幻灯片' : 'Insert new slide'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="2" y1="12" x2="6" y2="12"></line>
+              <line x1="18" y1="12" x2="22" y2="12"></line>
+              <path d="M6 8V4h12v4"></path>
+              <path d="M6 16v4h12v-4"></path>
+            </svg>
+            {lang === 'zh' ? '新页' : 'New Slide'}
+          </button>
+          <button class="toolbar-icon-btn" onclick={openImagePicker} title={lang === 'zh' ? '插入图片' : 'Insert image'}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="4" width="18" height="16" rx="2" ry="2"></rect>
               <circle cx="8.5" cy="9.5" r="1.5"></circle>
@@ -1155,14 +742,21 @@
             {lang === 'zh' ? '图片' : 'Image'}
           </button>
         </div>
-        <div class="editor-toolbar-right">
-        </div>
+        <div class="editor-toolbar-right"></div>
       </div>
+      <input
+        bind:this={imageInput}
+        class="sr-only"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+        onchange={handleImageInputChange}
+      />
       {#if editorMode === 'wysiwyg'}
         <WysiwygEditor
           bind:this={wysiwygEditor}
           bind:markdown
           placeholder={t('placeholder')}
+          cardMode
           imageUpload={saveLocalImage}
           resolveImageUrl={resolveImageUrl}
         />
@@ -1196,7 +790,7 @@
       tabindex="0"
     ></div>
 
-    <!-- Mobile Tab Switcher (Visible only on mobile) -->
+    <!-- Mobile Tab Switcher -->
     <div class="mobile-tabs">
       <button
         class="mobile-tab-btn"
@@ -1214,82 +808,38 @@
       </button>
     </div>
 
-    <!-- Preview Pane -->
+    <!-- Preview Pane (Slide Gallery) -->
     <section
       class="pane preview-pane"
       class:mobile-hidden={activeMobileTab !== 'preview'}
       style="width: {100 - leftPaneWidth}%"
     >
       <div class="preview-toolbar">
-        <div class="preview-status-wrapper">
+        <div class="preview-toolbar-left">
           <select class="style-select" bind:value={style}>
-            {#each STYLE_OPTIONS as s}
-              <option value={s.id}>{s.label[lang]}</option>
-            {/each}
+            <option value="slides-modern">{lang === 'zh' ? '现代蓝' : 'Modern'}</option>
+            <option value="slides-dark">{lang === 'zh' ? '深邃暗夜' : 'Dark'}</option>
+            <option value="slides-minimal">{lang === 'zh' ? '极简' : 'Minimal'}</option>
           </select>
-          <div class="pager">
-            <button
-              onclick={() => goToPage(pdfPage - 1)}
-              disabled={!pdfDoc || pdfPage <= 1}>&larr;</button
-            >
-            <span class="page-info">{pdfPage} / {pdfPages || '—'}</span>
-            <button
-              onclick={() => goToPage(pdfPage + 1)}
-              disabled={!pdfDoc || pdfPage >= pdfPages}>&rarr;</button
-            >
+          <select class="font-select" bind:value={font}>
+            <option value="sans">{lang === 'zh' ? '无衬线' : 'Sans'}</option>
+            <option value="serif">{lang === 'zh' ? '衬线' : 'Serif'}</option>
+          </select>
+        </div>
+        {#if status === 'compiling'}
+          <div class="compiling-badge">
+            <div class="spinner-xs"></div>
+            <span>{lang === 'zh' ? '生成中...' : 'Generating...'}</span>
           </div>
-          {#if status === 'error'}
-            <div class="error-badge">
-              <span>⚠️ {lang === 'zh' ? '编译失败' : 'Failed'}</span>
-            </div>
-          {/if}
-        </div>
-        <div class="zoom">
-          <span class="zoom-level">{Math.round(pdfScale * 100)}%</span>
-          <button onclick={fitWidth} disabled={!pdfDoc}>Fit</button>
-          <button
-            class="btn-icon-sm"
-            onclick={openPdfNewTab}
-            disabled={!pdfUrl || status === 'compiling'}
-            title={lang === 'zh' ? '在新标签页打开' : 'Open in new tab'}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-          </button>
-        </div>
-      </div>
-      <div class="preview-container" bind:this={previewContainerEl}>
-        {#if showPreviewCompilingHint}
-          <StatusHint label={lang === 'zh' ? '更新预览中' : 'Updating preview'} />
-        {/if}
-        <div
-          class="pdfjs-container"
-          class:active={activePreviewSlot === 0}
-          class:inactive={activePreviewSlot !== 0}
-          bind:this={pdfViewerContainerElA}
-        >
-          <div class="pdfViewer" bind:this={pdfViewerElA}></div>
-        </div>
-        <div
-          class="pdfjs-container"
-          class:active={activePreviewSlot === 1}
-          class:inactive={activePreviewSlot !== 1}
-          bind:this={pdfViewerContainerElB}
-        >
-          <div class="pdfViewer" bind:this={pdfViewerElB}></div>
-        </div>
-        {#if status === 'compiling' && !pdfBytes}
-          <div class="preview-placeholder">
-            <div class="loading-spinner"></div>
+        {:else if status === 'error'}
+          <div class="error-badge">
+            <span>{lang === 'zh' ? '编译失败' : 'Failed'}</span>
           </div>
         {/if}
       </div>
+      <CardGallery {pdfBytes} {status} {filename} {lang} columns={1} aspectRatio="16 / 9" fullResWidth={1920} thumbWidth={800} />
     </section>
   </main>
-
-  <!-- Hidden SEO Content for Search Engines -->
-  <div class="visually-hidden" aria-hidden="false">
-    {@html seoHtml}
-  </div>
 </div>
 
 <style>
@@ -1338,6 +888,66 @@
     border: 2px dashed var(--color-gray-300, #d1d5db);
     border-radius: 16px;
     background: var(--color-gray-50, #f9fafb);
+  }
+
+  /* ========================================
+     Loading Overlay
+     ======================================== */
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: var(--color-white);
+    z-index: 9999;
+    transition: opacity 0.3s ease;
+  }
+
+  .loading-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--color-gray-200);
+    border-top-color: var(--color-gray-600);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .loading-progress {
+    width: 200px;
+    height: 3px;
+    background: var(--color-gray-200);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .loading-progress-bar {
+    width: 40%;
+    height: 100%;
+    background: var(--color-gray-500);
+    border-radius: 2px;
+    animation: progress-indeterminate 1.2s ease-in-out infinite;
+  }
+
+  @keyframes progress-indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(350%);
+    }
+  }
+
+  .loading-text {
+    font-size: 0.875rem;
+    color: var(--color-gray-500);
   }
 
   /* ========================================
@@ -1421,10 +1031,8 @@
     cursor: default;
   }
 
-  /* ========================================
-     Style Select
-     ======================================== */
-  .style-select {
+  .style-select,
+  .font-select {
     appearance: none;
     -webkit-appearance: none;
     padding: calc(0.5rem - 1px) 2rem calc(0.5rem - 1px) 0.875rem;
@@ -1443,7 +1051,8 @@
     box-sizing: border-box;
   }
 
-  .style-select:hover {
+  .style-select:hover,
+  .font-select:hover {
     background-color: var(--color-gray-100);
     border-color: var(--color-gray-300);
   }
@@ -1471,7 +1080,6 @@
     background: #fff;
   }
 
-  /* Editor Pane */
   .editor-pane {
     background: var(--editor-bg);
     position: relative;
@@ -1488,11 +1096,23 @@
     gap: 6px;
   }
 
-  .editor-toolbar-left,
+  .editor-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .editor-toolbar-right {
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--color-gray-200, #e5e7eb);
+    flex-shrink: 0;
   }
 
   .editor-mode-toggle {
@@ -1521,33 +1141,25 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
-  .toolbar-divider {
-    width: 1px;
-    height: 18px;
-    background: var(--color-gray-200, #e5e7eb);
-  }
-
   .toolbar-icon-btn {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 8px;
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-    border-radius: var(--radius-sm, 4px);
-    background: var(--color-white, #fff);
-    color: var(--color-gray-600, #4b5563);
+    gap: 4px;
     font-size: 0.75rem;
     font-weight: 500;
+    padding: 3px 8px;
+    border: none;
+    border-radius: var(--radius-sm, 4px);
     cursor: pointer;
-    transition: all 0.15s ease;
+    color: var(--color-gray-500, #6b7280);
+    background: transparent;
+    transition: all 0.15s;
   }
 
   .toolbar-icon-btn:hover {
-    background: var(--color-gray-100, #f3f4f6);
-    border-color: var(--color-gray-300, #d1d5db);
-    color: var(--color-gray-900, #111827);
+    background: var(--color-gray-200, #e5e7eb);
+    color: var(--color-gray-700, #374151);
   }
-
 
   .error-bar {
     padding: var(--space-sm) var(--space-md);
@@ -1570,7 +1182,57 @@
     flex-shrink: 0;
   }
 
-  /* Resizer */
+  .preview-pane {
+    background: var(--preview-bg);
+  }
+
+  .preview-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
+    background: var(--color-white, #fff);
+    flex-shrink: 0;
+    gap: 8px;
+    min-height: 36px;
+  }
+
+  .preview-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .compiling-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--color-gray-500, #6b7280);
+  }
+
+  .error-badge {
+    font-size: 0.75rem;
+    color: #ef4444;
+  }
+
+  .spinner-xs {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid var(--color-gray-200, #e5e7eb);
+    border-top-color: var(--color-gray-500, #6b7280);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ========================================
+     Resizer
+     ======================================== */
   .resizer {
     width: var(--divider-width);
     background: var(--color-gray-200);
@@ -1583,152 +1245,6 @@
   .resizer:hover,
   .resizer.active {
     background: var(--color-gray-400);
-  }
-
-  /* Preview Pane */
-  .preview-pane {
-    background: var(--preview-bg);
-  }
-
-  .preview-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-sm) var(--space-md);
-    background: var(--color-white);
-    border-bottom: 1px solid var(--color-gray-200);
-  }
-
-  .pager,
-  .zoom {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-  }
-
-  .pager button,
-  .zoom button {
-    padding: var(--space-xs) var(--space-sm);
-    font-size: 0.75rem;
-    background: var(--color-gray-100);
-    border: 1px solid var(--color-gray-200);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-  }
-
-  .pager button:disabled,
-  .zoom button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .page-info,
-  .zoom-level {
-    font-size: 0.75rem;
-    color: var(--color-gray-500);
-    font-family: var(--font-mono);
-  }
-
-  .btn-icon-sm {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    background: var(--color-gray-100);
-    border: 1px solid var(--color-gray-200);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    color: var(--color-gray-500);
-  }
-
-  .btn-icon-sm:hover {
-    color: var(--color-gray-900);
-    background: var(--color-gray-200);
-  }
-
-  .btn-icon-sm:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .preview-container {
-    flex: 1;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .preview-status-wrapper {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-  }
-
-  .error-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 500;
-    padding: 2px 8px;
-    border-radius: 12px;
-    animation: fadeIn 0.2s ease-out;
-  }
-
-  .error-badge {
-    background: #fef2f2;
-    color: #ef4444;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(-2px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .pdfjs-container {
-    position: absolute;
-    inset: 0;
-    overflow: auto;
-    padding: var(--space-lg);
-    transition: opacity 0.18s ease-out;
-  }
-
-  .pdfjs-container.active {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-  }
-
-  .pdfjs-container.inactive {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-  }
-
-  .preview-placeholder {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--preview-bg);
-  }
-
-  /* PDF Viewer Overrides */
-  :global(.pdfViewer .page) {
-    margin: 0 auto var(--space-md);
-    box-shadow: var(--paper-shadow);
   }
 
   /* ========================================
@@ -1844,7 +1360,6 @@
       display: none;
     }
 
-    /* Mobile Tabs */
     .mobile-tabs {
       display: flex;
       position: fixed;
@@ -1891,5 +1406,4 @@
     }
 
   }
-
 </style>

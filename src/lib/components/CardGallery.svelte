@@ -10,9 +10,12 @@
     filename: string
     lang: 'zh' | 'en'
     columns?: number
+    aspectRatio?: string
+    fullResWidth?: number
+    thumbWidth?: number
   }
 
-  let { pdfBytes, status, filename, lang, columns = 0 }: Props = $props()
+  let { pdfBytes, status, filename, lang, columns = 0, aspectRatio = '3 / 4', fullResWidth = 1242, thumbWidth = 400 }: Props = $props()
 
   interface CardItem {
     pageNum: number
@@ -87,8 +90,7 @@
       pendingTotalPages = doc.numPages
 
       const dpr = window.devicePixelRatio || 1
-      const thumbCssWidth = 400
-      const thumbPixelWidth = thumbCssWidth * dpr
+      const thumbPixelWidth = thumbWidth * dpr
 
       for (let i = 1; i <= doc.numPages; i++) {
         activeRenderPage = i
@@ -237,7 +239,7 @@
     if (!currentDoc) return null
     const page = await currentDoc.getPage(pageNum)
     const baseVp = page.getViewport({ scale: 1 })
-    const scale = 1242 / baseVp.width
+    const scale = fullResWidth / baseVp.width
     const viewport = page.getViewport({ scale })
     const canvas = document.createElement('canvas')
     canvas.width = viewport.width
@@ -276,7 +278,7 @@
     <div class="card-grid" style={columns > 0 ? `grid-template-columns: repeat(${columns}, 1fr)` : ''}>
       {#each cards as card (card.pageNum)}
         <div class="card-item">
-          <div class="card-image-wrapper">
+          <div class="card-image-wrapper" style="aspect-ratio: {aspectRatio}">
             <img
               src={card.blobUrl}
               alt="Card {card.pageNum}"
@@ -330,7 +332,7 @@
       {/each}
       {#if rendering && visibleRenderPage !== null && activeRenderPage !== null && activeRenderPage > cards.length}
         <div class="card-item">
-          <div class="card-image-wrapper card-image-wrapper-loading">
+          <div class="card-image-wrapper card-image-wrapper-loading" style="aspect-ratio: {aspectRatio}">
             <StatusHint
               label={lang === 'zh' ? '新增卡片中' : 'Adding card'}
               position="top-left"
@@ -410,7 +412,6 @@
 
   .card-image-wrapper {
     position: relative;
-    aspect-ratio: 3 / 4;
     border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);

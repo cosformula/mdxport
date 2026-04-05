@@ -77,7 +77,7 @@ export type MarkdownToTypstOptions = {
 	theme?: string;
 };
 
-export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-modern' | 'redbook-forest' | 'redbook-blueprint' | 'redbook-clean';
+export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-modern' | 'redbook-forest' | 'redbook-blueprint' | 'redbook-clean' | 'slides-modern' | 'slides-dark' | 'slides-minimal';
 
 // Module-scoped style for use in renderBlock without threading through all calls
 let currentStyle: TypstStyleId = 'modern-tech';
@@ -94,7 +94,10 @@ const STYLE_TO_TEMPLATE: Record<TypstStyleId, { path: string; entry: string }> =
 	'redbook-modern': { path: 'styles/redbook-modern.typ', entry: 'article' },
 	'redbook-forest': { path: 'styles/redbook-forest.typ', entry: 'article' },
 	'redbook-blueprint': { path: 'styles/redbook-blueprint.typ', entry: 'article' },
-	'redbook-clean': { path: 'styles/redbook-clean.typ', entry: 'article' }
+	'redbook-clean': { path: 'styles/redbook-clean.typ', entry: 'article' },
+	'slides-modern': { path: 'styles/slides-modern.typ', entry: 'article' },
+	'slides-dark': { path: 'styles/slides-dark.typ', entry: 'article' },
+	'slides-minimal': { path: 'styles/slides-minimal.typ', entry: 'article' }
 };
 
 export function markdownToTypst(markdown: string, options: MarkdownToTypstOptions = {}): string {
@@ -102,6 +105,7 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 	currentSize = options.size ?? 'compact';
 	currentDensity = options.density ?? 'comfortable';
 	const isRedbookStyle = currentStyle.startsWith('redbook');
+	const isSlidesStyle = currentStyle.startsWith('slides');
 	const normalizedMarkdown = injectExtraBlankLineTokens(markdown);
 
 	const processor = unified()
@@ -132,8 +136,8 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 			? tree.children.filter((_, index) => index !== leadingTitleIndex)
 			: tree.children;
 
-	const body = isRedbookStyle
-		? renderRedbookBody(nodesForBody, definitions, footnoteDefinitions)
+	const body = isRedbookStyle || isSlidesStyle
+		? renderSegmentedBody(nodesForBody, definitions, footnoteDefinitions)
 		: nodesForBody
 				.map((node) => renderBlock(node, 0, definitions, footnoteDefinitions))
 				.filter(isNonEmpty)
@@ -162,12 +166,12 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 	return [header.join('\n'), '', body, ''].join('\n');
 }
 
-function renderRedbookBody(
+function renderSegmentedBody(
 	nodes: RenderableNode[],
 	definitions: Map<string, Definition>,
 	footnoteDefinitions: Map<string, FootnoteDefinition>
 ): string {
-	const segments = splitRedbookSegments(nodes);
+	const segments = splitSegments(nodes);
 	return segments
 		.map((segment) => {
 			return segment
@@ -179,12 +183,12 @@ function renderRedbookBody(
 		.join('\n\n#pagebreak()\n\n');
 }
 
-function splitRedbookSegments(nodes: RenderableNode[]): RenderableNode[][] {
+function splitSegments(nodes: RenderableNode[]): RenderableNode[][] {
 	const segments: RenderableNode[][] = [];
 	let current: RenderableNode[] = [];
 
 	for (const node of nodes) {
-		if (isRedbookPageBreak(node)) {
+		if (isSegmentBreak(node)) {
 			if (current.length) segments.push(current);
 			current = [];
 			continue;
@@ -196,7 +200,7 @@ function splitRedbookSegments(nodes: RenderableNode[]): RenderableNode[][] {
 	return segments;
 }
 
-function isRedbookPageBreak(node: RenderableNode): boolean {
+function isSegmentBreak(node: RenderableNode): boolean {
 	return node.type === 'pageBreak' || node.type === 'thematicBreak';
 }
 
@@ -391,7 +395,7 @@ function renderBlock(
 		case 'pageBreak':
 			return renderPageBreak(node as unknown as PageBreakNode, indentLevel);
 		case 'thematicBreak':
-			if (currentStyle.startsWith('redbook') && indentLevel === 0) {
+			if ((currentStyle.startsWith('redbook') || currentStyle.startsWith('slides')) && indentLevel === 0) {
 				return indentLines('#pagebreak()', indentLevel);
 			}
 			return indentLines('#line(length: 100%, stroke: 0.6pt)', indentLevel);

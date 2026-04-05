@@ -11,7 +11,9 @@
   import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
   import CardGallery from '$lib/components/CardGallery.svelte'
+  import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { REDBOOK_TEMPLATES } from '$lib/templates/redbook-templates'
+  import { documentStore } from '$lib/stores/documentStore.svelte'
   import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
 
   // Props
@@ -106,8 +108,43 @@
 
   $effect(() => {
     if (hasInitializedMarkdown) return
-    markdown = REDBOOK_TEMPLATES[lang]?.[0]?.content ?? ''
+    if (!browser) return
     hasInitializedMarkdown = true
+    ;(async () => {
+      await documentStore.init()
+      // Migrate old localStorage data
+      const oldSaved = localStorage.getItem('mdxport-redbook-markdown')
+      if (oldSaved && oldSaved.trim()) {
+        localStorage.removeItem('mdxport-redbook-markdown')
+        const { content } = await documentStore.createDocument('redbook', oldSaved)
+        markdown = content
+        return
+      }
+      // Try loading current doc if it belongs to this mode
+      if (documentStore.currentDocId) {
+        const currentDoc = documentStore.recentDocuments.find((d) => d.id === documentStore.currentDocId)
+        if (currentDoc?.mode === 'redbook') {
+          const content = await documentStore.loadDocument(documentStore.currentDocId)
+          if (content !== null) {
+            markdown = content
+            return
+          }
+        }
+      }
+      // Check recent redbook docs
+      const redbookDocs = documentStore.recentDocuments.filter((d) => d.mode === 'redbook')
+      if (redbookDocs.length > 0) {
+        const content = await documentStore.loadDocument(redbookDocs[0].id)
+        if (content !== null) {
+          markdown = content
+          return
+        }
+      }
+      // Create from template
+      const defaultContent = REDBOOK_TEMPLATES[lang]?.[0]?.content ?? ''
+      const { content } = await documentStore.createDocument('redbook', defaultContent)
+      markdown = content
+    })()
   })
 
   // ========================================
@@ -207,6 +244,12 @@
     localStorage.setItem('mdxport-card-density', cardDensity)
     localStorage.setItem('mdxport-card-columns', String(cardColumns))
     localStorage.setItem('mdxport-editor-mode', editorMode)
+  })
+
+  // Auto-save document to IndexedDB
+  $effect(() => {
+    if (!browser || !hasInitializedMarkdown || !documentStore.currentDocId) return
+    documentStore.autoSave(documentStore.currentDocId, markdown)
   })
 
   // ========================================
@@ -371,13 +414,6 @@
       URL.revokeObjectURL(url)
     }
     doc.destroy()
-  }
-
-  // ========================================
-  // Template handling
-  // ========================================
-  function applyTemplate(templateContent: string) {
-    markdown = templateContent
   }
 
   function openImagePicker() {
@@ -660,38 +696,20 @@
       <a href="/{lang}/" class="logo-link">
         <img src="/logo.png" alt="MDXport" class="logo-img" />
       </a>
-      <a
-        href="https://github.com/cosformula/mdxport"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="nav-icon hidden-mobile"
-        title="View on GitHub"
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path
-            d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
-          ></path>
-        </svg>
-      </a>
-
-      <a href="/{lang}/" class="mode-link hidden-mobile" title={lang === 'zh' ? 'PDF 模式' : 'PDF Mode'}>
-        {lang === 'zh' ? 'PDF 模式' : 'PDF Mode'}
-      </a>
-    </div>
-    <div class="navbar-center">
-      <!-- spacer -->
+      <div class="mode-toggle hidden-mobile">
+        <a href="/{lang}/" class="mode-toggle-item">PDF</a>
+        <span class="mode-toggle-item active">{lang === 'zh' ? '卡片' : 'Card'}</span>
+        <a href="/{lang}/slides/" class="mode-toggle-item">{lang === 'zh' ? '幻灯片' : 'Slides'}</a>
+      </div>
+      <DocumentMenu
+        {lang}
+        mode="redbook"
+        templates={REDBOOK_TEMPLATES[lang] || []}
+        currentContent={markdown}
+        onDocumentLoad={(content) => { markdown = content }}
+      />
     </div>
     <div class="navbar-right">
-      <!-- Download Button -->
       <button
         class="btn btn-primary btn-sm"
         onclick={downloadCards}
@@ -700,12 +718,6 @@
         {status === 'compiling' ? t('generating') : t('exportCards')}
       </button>
 
-      <!-- Language Switch -->
-      <button class="btn btn-ghost btn-sm hidden-mobile" onclick={switchLang}>
-        {t('langSwitch')}
-      </button>
-
-      <!-- Menu Button -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="menu-container" onclick={(e) => e.stopPropagation()}>
@@ -716,67 +728,33 @@
           aria-label="Menu"
           style="color: var(--color-gray-900);"
         >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"
-            ></circle>
-            <circle cx="19" cy="12" r="2" fill="currentColor" stroke="none"
-            ></circle>
-            <circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"
-            ></circle>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"></circle>
+            <circle cx="19" cy="12" r="2" fill="currentColor" stroke="none"></circle>
+            <circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"></circle>
           </svg>
         </button>
 
         {#if isMenuOpen}
           <div class="dropdown-menu">
+            <button class="menu-item" onclick={switchLang}>
+              <span class="menu-icon">🌐</span>
+              {t('langSwitch') === '中' ? 'Switch to Chinese' : 'Switch to English'}
+            </button>
+
             <a
               href="https://github.com/cosformula/mdxport"
               target="_blank"
               rel="noopener noreferrer"
-              class="menu-item show-mobile"
+              class="menu-item"
             >
               <span class="menu-icon">🐙</span>
               GitHub
             </a>
 
-            <button class="menu-item show-mobile" onclick={switchLang}>
-              <span class="menu-icon">🌐</span>
-              {t('langSwitch') === '中'
-                ? 'Switch to Chinese'
-                : 'Switch to English'}
-            </button>
-
-            <button
-              class="menu-item"
-              onclick={() => {
-                markdown = ''
-                closeMenu()
-              }}
-            >
-              <span class="menu-icon">📄</span>
-              {lang === 'zh' ? '新建' : 'New'}
-            </button>
-
-            <a href="/{lang}/" class="menu-item">
-              <span class="menu-icon">📑</span>
-              {lang === 'zh' ? 'PDF 编辑器' : 'PDF Editor'}
-            </a>
-
             <div class="menu-divider"></div>
 
-            <a
-              href="mailto:cosformula@gmail.com"
-              class="menu-item small"
-              title={lang === 'zh' ? '联系我们' : 'Contact Us'}
-            >
+            <a href="mailto:cosformula@gmail.com" class="menu-item small" title={lang === 'zh' ? '联系我们' : 'Contact Us'}>
               <span class="menu-icon">✉️</span>
               {lang === 'zh' ? '联系我们' : 'Contact'}
             </a>
@@ -823,24 +801,7 @@
             {lang === 'zh' ? '图片' : 'Image'}
           </button>
         </div>
-        <div class="editor-toolbar-right">
-          <select
-            class="toolbar-select"
-            onchange={(e) => {
-              const target = e.target as HTMLSelectElement
-              const idx = parseInt(target.value, 10)
-              if (!isNaN(idx)) {
-                applyTemplate(REDBOOK_TEMPLATES[lang][idx].content)
-              }
-              target.value = ''
-            }}
-          >
-            <option value="" disabled selected>{lang === 'zh' ? '模板' : 'Templates'}</option>
-            {#each REDBOOK_TEMPLATES[lang] as tmpl, idx}
-              <option value={idx}>{tmpl.icon} {tmpl.name}</option>
-            {/each}
-          </select>
-        </div>
+        <div class="editor-toolbar-right"></div>
       </div>
       <input
         bind:this={imageInput}
@@ -1094,7 +1055,6 @@
   }
 
   .navbar-left,
-  .navbar-center,
   .navbar-right {
     display: flex;
     align-items: center;
@@ -1102,12 +1062,8 @@
   }
 
   .navbar-left {
-    flex: 0 0 auto;
-  }
-
-  .navbar-center {
     flex: 1;
-    justify-content: center;
+    min-width: 0;
   }
 
   .navbar-right {
@@ -1133,35 +1089,36 @@
     display: block;
   }
 
-  .nav-icon {
+  .mode-toggle {
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    color: var(--color-gray-500);
-    border-radius: var(--radius-sm);
-    transition: all var(--transition-fast);
-  }
-
-  .nav-icon:hover {
     background: var(--color-gray-100);
-    color: var(--color-gray-900);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    gap: 0;
   }
 
-  .mode-link {
-    font-size: 0.8125rem;
+  .mode-toggle-item {
+    font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-gray-500, #6b7280);
+    padding: 3px 10px;
+    border-radius: calc(var(--radius-sm) - 1px);
+    color: var(--color-gray-500);
     text-decoration: none;
-    padding: 4px 8px;
-    border-radius: var(--radius-sm, 4px);
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    white-space: nowrap;
   }
 
-  .mode-link:hover {
-    color: var(--color-gray-900, #111);
-    background: var(--color-gray-100, #f3f4f6);
+  .mode-toggle-item:hover:not(.active) {
+    color: var(--color-gray-700);
+  }
+
+  .mode-toggle-item.active {
+    background: var(--color-white);
+    color: var(--color-gray-900);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    cursor: default;
   }
 
   .style-select,
@@ -1294,29 +1251,6 @@
   .toolbar-icon-btn:hover {
     background: var(--color-gray-200, #e5e7eb);
     color: var(--color-gray-700, #374151);
-  }
-
-
-  .toolbar-select {
-    appearance: none;
-    -webkit-appearance: none;
-    padding: 3px 24px 3px 8px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    background-color: var(--color-white, #fff);
-    background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 9L12 15L18 9' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 6px center;
-    background-size: 12px;
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-    border-radius: var(--radius-sm, 4px);
-    cursor: pointer;
-    color: var(--color-gray-600, #4b5563);
-  }
-
-  .toolbar-select:hover {
-    background-color: var(--color-gray-100, #f3f4f6);
-    border-color: var(--color-gray-300, #d1d5db);
   }
 
   .error-bar {
@@ -1563,13 +1497,6 @@
       display: none !important;
     }
 
-    .show-mobile {
-      display: flex !important;
-    }
-  }
-
-  .show-mobile {
-    display: none;
   }
 
   @keyframes spin {

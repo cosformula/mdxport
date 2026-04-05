@@ -12,6 +12,9 @@ import redbookBlueprintTyp from '../typst/styles/redbook-blueprint.typ?raw';
 import redbookCleanTyp from '../typst/styles/redbook-clean.typ?raw';
 import redbookModernTyp from '../typst/styles/redbook-modern.typ?raw';
 import redbookTypographyTyp from '../typst/styles/redbook-typography.typ?raw';
+import slidesModernTyp from '../typst/styles/slides-modern.typ?raw';
+import slidesDarkTyp from '../typst/styles/slides-dark.typ?raw';
+import slidesMinimalTyp from '../typst/styles/slides-minimal.typ?raw';
 
 type CompileRequest = {
 	type: 'compile';
@@ -103,6 +106,9 @@ async function upgradeCompiler(needCjk: boolean, needEmoji: boolean) {
 	newCompiler.addSource('/styles/redbook-blueprint.typ', redbookBlueprintTyp);
 	newCompiler.addSource('/styles/redbook-clean.typ', redbookCleanTyp);
 	newCompiler.addSource('/styles/redbook-typography.typ', redbookTypographyTyp);
+	newCompiler.addSource('/styles/slides-modern.typ', slidesModernTyp);
+	newCompiler.addSource('/styles/slides-dark.typ', slidesDarkTyp);
+	newCompiler.addSource('/styles/slides-minimal.typ', slidesMinimalTyp);
 
 	// Swap the compiler promise
 	compilerPromise = Promise.resolve(newCompiler);
@@ -132,6 +138,9 @@ function getCompiler(): Promise<TypstCompiler> {
 		compiler.addSource('/styles/redbook-blueprint.typ', redbookBlueprintTyp);
 		compiler.addSource('/styles/redbook-clean.typ', redbookCleanTyp);
 		compiler.addSource('/styles/redbook-typography.typ', redbookTypographyTyp);
+		compiler.addSource('/styles/slides-modern.typ', slidesModernTyp);
+		compiler.addSource('/styles/slides-dark.typ', slidesDarkTyp);
+		compiler.addSource('/styles/slides-minimal.typ', slidesMinimalTyp);
 		return compiler;
 	})();
 

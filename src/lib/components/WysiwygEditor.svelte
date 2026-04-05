@@ -58,6 +58,7 @@
   }
 
   function markdownValueFromEditor(md: string): string {
+    // Milkdown may serialize thematic breaks as *** — normalize to ---
     const normalized = md.replace(/^[ \t]*\*\*\*$/gm, '---')
     if (!cardMode) {
       return currentFrontmatter + normalized
