@@ -70,3 +70,13 @@ export class TypstWorkerClient {
 		});
 	}
 }
+
+let sharedTypstWorkerClient: TypstWorkerClient | null = null;
+
+export function getSharedTypstWorkerClient(): TypstWorkerClient {
+	if (!sharedTypstWorkerClient) {
+		sharedTypstWorkerClient = new TypstWorkerClient();
+	}
+
+	return sharedTypstWorkerClient;
+}

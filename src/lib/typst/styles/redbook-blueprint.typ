@@ -1,14 +1,34 @@
 // 小红书蓝图卡片风格 (Xiaohongshu Blueprint Card Style)
 // 特点：深蓝背景、荧光蓝/青色强调、网格点阵装饰、适合科技/编程类。
 
+#import "redbook-typography.typ": resolve-tokens
+
 #let article(title: "", authors: (), ..args, body) = {
   let lang = args.at("lang", default: "zh")
   let font-choice = args.at("font", default: "sans")
+  let size-preset = args.at("size", default: "compact")
+  let density-preset = args.at("density", default: "comfortable")
+  let tokens = resolve-tokens(size: size-preset, density: density-preset)
 
   let sans-fonts = ("IBM Plex Sans", "Roboto", "Libertinus Sans", "Noto Sans CJK SC", "Noto Sans SC", "Noto Color Emoji")
   let serif-fonts = ("Libertinus Serif", "Noto Serif SC", "Noto Serif CJK SC", "Noto Color Emoji")
   let body-fonts = if font-choice == "serif" { serif-fonts } else { sans-fonts }
   let heading-fonts = if font-choice == "serif" { serif-fonts } else { sans-fonts }
+  let body-size = tokens.at("body-size")
+  let heading-1-size = tokens.at("heading-1-size")
+  let heading-2-size = tokens.at("heading-2-size")
+  let heading-3-size = tokens.at("heading-3-size")
+  let code-size = tokens.at("code-size")
+  let title-size = tokens.at("title-size")
+  let author-size = tokens.at("author-size")
+  let paragraph-leading = tokens.at("paragraph-leading")
+  let paragraph-spacing = tokens.at("paragraph-spacing")
+  let heading-above = tokens.at("heading-above")
+  let heading-below = tokens.at("heading-below")
+  let heading-leading = tokens.at("heading-leading")
+  let code-leading = tokens.at("code-leading")
+  let title-leading = tokens.at("title-leading")
+  let list-spacing = tokens.at("list-spacing")
 
   set page(
     width: 105mm,
@@ -32,19 +52,19 @@
 
   set text(
     font: body-fonts,
-    size: 11pt,
+    size: body-size,
     lang: lang,
     fill: rgb("#C8DCF0"),
   )
 
   set par(
     justify: false,
-    leading: 1.1em,
+    leading: paragraph-leading,
     first-line-indent: 0pt,
-    spacing: 1em,
+    spacing: paragraph-spacing,
   )
-  set list(indent: 0.8em, body-indent: 0.4em, spacing: 0.6em, marker: text(fill: rgb("#38BDF8"), [▸]))
-  set enum(indent: 0.8em, body-indent: 0.4em, spacing: 0.6em)
+  set list(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing, marker: text(fill: rgb("#38BDF8"), [▸]))
+  set enum(indent: 0.8em, body-indent: 0.4em, spacing: list-spacing)
 
   show heading: it => {
     set text(
@@ -52,11 +72,12 @@
       fill: rgb("#E0F0FF"),
       font: heading-fonts,
     )
-    block(above: 1.2em, below: 0.6em, it)
+    set par(leading: heading-leading)
+    block(above: heading-above, below: heading-below, it)
   }
-  show heading.where(level: 1): set text(size: 1.5em)
-  show heading.where(level: 2): set text(size: 1.25em)
-  show heading.where(level: 3): set text(size: 1.1em)
+  show heading.where(level: 1): set text(size: heading-1-size)
+  show heading.where(level: 2): set text(size: heading-2-size)
+  show heading.where(level: 3): set text(size: heading-3-size)
 
   show link: set text(fill: rgb("#38BDF8"))
 
@@ -88,7 +109,8 @@
     stroke: 0.5pt + rgb("#1E3A5F"),
     it,
   )
-  show raw: set text(font: ("JetBrains Mono", "Fira Code", "Consolas", "DejaVu Sans Mono"), size: 0.9em, fill: rgb("#A0D8EF"))
+  show raw: set text(font: ("JetBrains Mono", "Fira Code", "Consolas", "DejaVu Sans Mono"), size: code-size, fill: rgb("#A0D8EF"))
+  show raw.where(block: true): set par(leading: code-leading)
 
   set table(
     stroke: (paint: rgb("#1E3A5F"), thickness: 0.5pt),
@@ -100,10 +122,11 @@
 
   if title != "" {
     block(width: 100%, inset: (bottom: 0.8em))[
-      #text(1.6em, weight: "black", fill: rgb("#E0F0FF"), title)
+      #set par(leading: title-leading)
+      #text(title-size, weight: "black", fill: rgb("#E0F0FF"), title)
       #if authors.len() > 0 [
         #v(0.2em)
-        #text(0.85em, fill: rgb("#5A8AAA"), authors.join(" · "))
+        #text(author-size, fill: rgb("#5A8AAA"), authors.join(" · "))
       ]
     ]
     line(length: 100%, stroke: 1pt + rgb("#1E3A5F"))

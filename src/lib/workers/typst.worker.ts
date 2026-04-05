@@ -10,6 +10,7 @@ import redbookMinimalistTyp from '../typst/styles/redbook-minimalist.typ?raw';
 import redbookGradientTyp from '../typst/styles/redbook-gradient.typ?raw';
 import redbookForestTyp from '../typst/styles/redbook-forest.typ?raw';
 import redbookBlueprintTyp from '../typst/styles/redbook-blueprint.typ?raw';
+import redbookTypographyTyp from '../typst/styles/redbook-typography.typ?raw';
 
 type CompileRequest = {
 	type: 'compile';
@@ -99,6 +100,7 @@ async function upgradeCompiler(needCjk: boolean, needEmoji: boolean) {
 	newCompiler.addSource('/styles/redbook-gradient.typ', redbookGradientTyp);
 	newCompiler.addSource('/styles/redbook-forest.typ', redbookForestTyp);
 	newCompiler.addSource('/styles/redbook-blueprint.typ', redbookBlueprintTyp);
+	newCompiler.addSource('/styles/redbook-typography.typ', redbookTypographyTyp);
 	
 	// Swap the compiler promise
 	compilerPromise = Promise.resolve(newCompiler);
@@ -126,6 +128,7 @@ function getCompiler(): Promise<TypstCompiler> {
 		compiler.addSource('/styles/redbook-gradient.typ', redbookGradientTyp);
 		compiler.addSource('/styles/redbook-forest.typ', redbookForestTyp);
 		compiler.addSource('/styles/redbook-blueprint.typ', redbookBlueprintTyp);
+		compiler.addSource('/styles/redbook-typography.typ', redbookTypographyTyp);
 		return compiler;
 	})();
 

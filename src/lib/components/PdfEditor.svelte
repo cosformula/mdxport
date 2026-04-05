@@ -5,12 +5,14 @@
   import { getPdfjs } from '$lib/pdf/pdfjs'
   import { markdownToTypst } from '$lib/pipeline/markdownToTypst'
   import { markdownToHtml } from '$lib/pipeline/markdownToHtml'
-  import { TypstWorkerClient } from '$lib/workers/typstClient'
+  import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
   import { useRegisterSW } from 'virtual:pwa-register/svelte'
+  import type { RegisterSWOptions } from 'virtual:pwa-register/svelte'
 
   import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
+  import StatusHint from '$lib/components/StatusHint.svelte'
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
   import { PDF_TEMPLATES, type Template } from '$lib/templates/pdf-templates'
 
@@ -37,10 +39,21 @@
   // ========================================
   // State
   // ========================================
-  let markdown = $state(initialMarkdown || PDF_TEMPLATES[lang]?.[0]?.content || '')
+  let markdown = $state('')
+  let hasInitializedMarkdown = false
+  let markdownEditor = $state<MarkdownEditor | null>(null)
+  let wysiwygEditor = $state<WysiwygEditor | null>(null)
+  let imageInputEl = $state<HTMLInputElement | null>(null)
+
+  type LocalImageAsset = {
+    bytes: Uint8Array
+    objectUrl: string
+  }
+
+  let imageAssets = $state<Record<string, LocalImageAsset>>({})
 
   // PWA Service Worker
-  const { needRefresh, updateServiceWorker } = useRegisterSW({
+  const swOptions: RegisterSWOptions = {
     onRegistered(swr) {
       console.log('SW registered: ', swr)
       if (swr) {
@@ -56,6 +69,13 @@
     onRegisterError(error) {
       console.log('SW registration error', error)
     },
+  }
+  const { needRefresh, updateServiceWorker } = useRegisterSW(swOptions)
+
+  $effect(() => {
+    if (hasInitializedMarkdown) return
+    markdown = initialMarkdown || PDF_TEMPLATES[lang]?.[0]?.content || ''
+    hasInitializedMarkdown = true
   })
 
   // Layout state
@@ -145,10 +165,31 @@
   let pdfScale = $state(1)
   let pdfViewer = $state<PDFViewer | null>(null)
   let pdfLinkService = $state<PDFLinkService | null>(null)
-  let pdfViewerContainerEl = $state<HTMLDivElement | null>(null)
-  let pdfViewerEl = $state<HTMLDivElement | null>(null)
+  let previewContainerEl = $state<HTMLDivElement | null>(null)
+  let pdfViewerContainerElA = $state<HTMLDivElement | null>(null)
+  let pdfViewerContainerElB = $state<HTMLDivElement | null>(null)
+  let pdfViewerElA = $state<HTMLDivElement | null>(null)
+  let pdfViewerElB = $state<HTMLDivElement | null>(null)
   let pdfLoadTask: PDFDocumentLoadingTask | null = null
   let pdfLoadSeq = 0
+  let showPreviewCompilingHint = $state(false)
+  let compilingHintTimer: number | null = null
+  let activePreviewSlot = $state<0 | 1>(0)
+
+  type ViewerRuntime = {
+    viewer: PDFViewer | null
+    linkService: PDFLinkService | null
+    eventBus: {
+      on: (name: string, cb: (event: any) => void) => void
+      off: (name: string, cb: (event: any) => void) => void
+    } | null
+    doc: PDFDocumentProxy | null
+  }
+
+  const viewerRuntimes: [ViewerRuntime, ViewerRuntime] = [
+    { viewer: null, linkService: null, eventBus: null, doc: null },
+    { viewer: null, linkService: null, eventBus: null, doc: null },
+  ]
 
   // Auto-compile
   let compileSeq = 0
@@ -186,6 +227,59 @@
     return UI[lang][key]
   }
 
+  function getPreviewContainer(slot: 0 | 1): HTMLDivElement | null {
+    return slot === 0 ? pdfViewerContainerElA : pdfViewerContainerElB
+  }
+
+  function getPreviewViewer(slot: 0 | 1): HTMLDivElement | null {
+    return slot === 0 ? pdfViewerElA : pdfViewerElB
+  }
+
+  function getInactivePreviewSlot(): 0 | 1 {
+    return activePreviewSlot === 0 ? 1 : 0
+  }
+
+  function getActivePreviewContainer(): HTMLDivElement | null {
+    return getPreviewContainer(activePreviewSlot)
+  }
+
+  function waitForFirstRenderedPage(slot: 0 | 1): Promise<void> {
+    const eventBus = viewerRuntimes[slot].eventBus
+    if (!eventBus) return Promise.resolve()
+
+    return new Promise((resolve) => {
+      const onRendered = () => {
+        eventBus.off('pagerendered', onRendered)
+        resolve()
+      }
+      eventBus.on('pagerendered', onRendered)
+    })
+  }
+
+  $effect(() => {
+    if (!browser) return
+
+    if (compilingHintTimer !== null) {
+      window.clearTimeout(compilingHintTimer)
+      compilingHintTimer = null
+    }
+
+    showPreviewCompilingHint = false
+
+    if (status === 'compiling' && !!pdfBytes) {
+      compilingHintTimer = window.setTimeout(() => {
+        showPreviewCompilingHint = true
+      }, 180)
+    }
+
+    return () => {
+      if (compilingHintTimer !== null) {
+        window.clearTimeout(compilingHintTimer)
+        compilingHintTimer = null
+      }
+    }
+  })
+
   // ========================================
   // Lifecycle
   // ========================================
@@ -198,41 +292,57 @@
     }
 
     loadingText = t('loading')
-    client = new TypstWorkerClient()
+    client = getSharedTypstWorkerClient()
 
     let aborted = false
 
     void (async () => {
-      const container = pdfViewerContainerEl
-      const viewer = pdfViewerEl
-      if (!container || !viewer) return
+      const containers: [HTMLDivElement | null, HTMLDivElement | null] = [
+        pdfViewerContainerElA,
+        pdfViewerContainerElB,
+      ]
+      const viewers: [HTMLDivElement | null, HTMLDivElement | null] = [
+        pdfViewerElA,
+        pdfViewerElB,
+      ]
+      if (containers.some((container) => !container) || viewers.some((viewer) => !viewer)) {
+        return
+      }
 
       await getPdfjs()
       const mod = await import('pdfjs-dist/web/pdf_viewer.mjs')
       if (aborted) return
 
-      const eventBus = new mod.EventBus()
-      const linkService = new mod.PDFLinkService({ eventBus })
-      const pdfViewerInstance = new mod.PDFViewer({
-        container,
-        viewer,
-        eventBus,
-        linkService,
-      })
-      linkService.setViewer(pdfViewerInstance)
+      ;([0, 1] as const).forEach((slot) => {
+        const eventBus = new mod.EventBus()
+        const linkService = new mod.PDFLinkService({ eventBus })
+        const pdfViewerInstance = new mod.PDFViewer({
+          container: containers[slot]!,
+          viewer: viewers[slot]!,
+          eventBus,
+          linkService,
+        })
+        linkService.setViewer(pdfViewerInstance)
 
-      eventBus.on('pagesinit', () => {
-        pdfViewerInstance.currentScaleValue = 'page-width'
-      })
-      eventBus.on('pagechanging', (event: { pageNumber: number }) => {
-        pdfPage = event.pageNumber
-      })
-      eventBus.on('scalechanging', (event: { scale: number }) => {
-        pdfScale = event.scale
+        eventBus.on('pagesinit', () => {
+          pdfViewerInstance.currentScaleValue = 'page-width'
+        })
+        eventBus.on('pagechanging', (event: { pageNumber: number }) => {
+          if (slot !== activePreviewSlot) return
+          pdfPage = event.pageNumber
+        })
+        eventBus.on('scalechanging', (event: { scale: number }) => {
+          if (slot !== activePreviewSlot) return
+          pdfScale = event.scale
+        })
+
+        viewerRuntimes[slot].viewer = pdfViewerInstance
+        viewerRuntimes[slot].linkService = linkService
+        viewerRuntimes[slot].eventBus = eventBus
       })
 
-      pdfLinkService = linkService
-      pdfViewer = pdfViewerInstance
+      pdfLinkService = viewerRuntimes[activePreviewSlot].linkService
+      pdfViewer = viewerRuntimes[activePreviewSlot].viewer
 
       // Hide loading overlay
       isLoading = false
@@ -265,9 +375,15 @@
       window.removeEventListener('click', handleClickOutside)
       window.removeEventListener('resize', handleResize)
       if (resizeTimer) clearTimeout(resizeTimer)
-      client?.dispose()
+      for (const asset of Object.values(imageAssets)) {
+        URL.revokeObjectURL(asset.objectUrl)
+      }
       pdfLoadTask?.destroy()
-      pdfDoc?.destroy()
+      for (const runtime of viewerRuntimes) {
+        void runtime.doc?.destroy()
+        runtime.doc = null
+      }
+      pdfDoc = null
       if (pdfUrl) URL.revokeObjectURL(pdfUrl)
     }
   })
@@ -344,7 +460,10 @@
     const bytes = pdfBytes
     if (!bytes) {
       pdfLoadTask?.destroy()
-      pdfDoc?.destroy()
+      for (const runtime of viewerRuntimes) {
+        void runtime.doc?.destroy()
+        runtime.doc = null
+      }
       pdfDoc = null
       pdfPages = 0
       pdfPage = 1
@@ -367,13 +486,39 @@
         return
       }
 
-      void pdfDoc?.destroy()
+      const nextSlot = getInactivePreviewSlot()
+      const previousSlot = activePreviewSlot
+      const nextRuntime = viewerRuntimes[nextSlot]
+      const previousRuntime = viewerRuntimes[previousSlot]
+
+      if (!nextRuntime.viewer || !nextRuntime.linkService) {
+        void doc.destroy()
+        return
+      }
+
+      void nextRuntime.doc?.destroy()
+      nextRuntime.doc = doc
+
+      nextRuntime.linkService.setDocument(doc)
+      nextRuntime.viewer.setDocument(doc)
+      await waitForFirstRenderedPage(nextSlot)
+
+      if (seq !== pdfLoadSeq) {
+        if (nextRuntime.doc === doc) {
+          nextRuntime.doc = null
+        }
+        void doc.destroy()
+        return
+      }
+
+      activePreviewSlot = nextSlot
       pdfDoc = doc
       pdfPages = doc.numPages
       pdfPage = 1
-
-      pdfLinkService?.setDocument(doc)
-      pdfViewer?.setDocument(doc)
+      pdfLinkService = nextRuntime.linkService
+      pdfViewer = nextRuntime.viewer
+      void previousRuntime.doc?.destroy()
+      previousRuntime.doc = null
     })().catch((error) => {
       console.error(error)
     })
@@ -439,6 +584,8 @@
         processedMd = newContent
       }
 
+      Object.assign(images, collectReferencedImageAssets(processedMd))
+
       const mainTypst = markdownToTypst(processedMd, {
         style: nextStyle,
         lang: docLang,
@@ -486,6 +633,10 @@
     fileInputEl?.click()
   }
 
+  function handleOpenImage() {
+    imageInputEl?.click()
+  }
+
   function onFileSelected(e: Event) {
     const target = e.target as HTMLInputElement
     const files = target.files
@@ -503,6 +654,127 @@
 
     // Reset value so same file can be selected again
     target.value = ''
+  }
+
+  function getMarkdownImportFile(files: FileList): File | null {
+    for (const file of files) {
+      if (
+        file.name.endsWith('.md') ||
+        file.name.endsWith('.markdown') ||
+        file.name.endsWith('.txt')
+      ) {
+        return file
+      }
+    }
+    return null
+  }
+
+  function getImageDropFile(files: FileList): File | null {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) return file
+    }
+    return null
+  }
+
+  function getImageExtension(file: File): string {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext && /^[a-z0-9]+$/.test(ext)) return ext
+    switch (file.type) {
+      case 'image/jpeg':
+        return 'jpg'
+      case 'image/png':
+        return 'png'
+      case 'image/webp':
+        return 'webp'
+      case 'image/svg+xml':
+        return 'svg'
+      case 'image/gif':
+        return 'gif'
+      default:
+        return 'png'
+    }
+  }
+
+  function getImageAltText(file: File): string {
+    return file.name.replace(/\.[^.]+$/, '').trim() || 'Image'
+  }
+
+  function escapeMarkdownImageAlt(text: string): string {
+    return text.replace(/[[\]\\]/g, '\\$&')
+  }
+
+  function createAssetId(): string {
+    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : String(Date.now())
+  }
+
+  async function saveLocalImage(file: File): Promise<string> {
+    if (!file.type.startsWith('image/')) {
+      throw new Error(lang === 'zh' ? '仅支持图片文件' : 'Only image files are supported')
+    }
+
+    const path = `images/${createAssetId()}.${getImageExtension(file)}`
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const objectUrl = URL.createObjectURL(file)
+
+    imageAssets[path] = {
+      bytes,
+      objectUrl,
+    }
+
+    return path
+  }
+
+  function resolveImageUrl(path: string): string {
+    return imageAssets[path]?.objectUrl ?? path
+  }
+
+  function insertMarkdownSnippet(snippet: string): void {
+    if (editorMode === 'code' && markdownEditor?.insertTextAtSelection(snippet)) {
+      return
+    }
+    if (editorMode === 'wysiwyg' && wysiwygEditor?.insertMarkdownAtSelection(snippet)) {
+      return
+    }
+
+    const trimmed = markdown.trimEnd()
+    markdown = trimmed ? `${trimmed}${snippet}` : snippet.trimStart()
+  }
+
+  function collectReferencedImageAssets(md: string): Record<string, Uint8Array> {
+    const referenced = new Set<string>()
+    const markdownImageRegex = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+
+    for (const match of md.matchAll(markdownImageRegex)) {
+      const path = match[1]
+      if (path in imageAssets) {
+        referenced.add(path)
+      }
+    }
+
+    return Object.fromEntries(
+      [...referenced].map((path) => [path, imageAssets[path].bytes]),
+    )
+  }
+
+  async function insertImageFile(file: File): Promise<void> {
+    try {
+      const path = await saveLocalImage(file)
+      const alt = escapeMarkdownImageAlt(getImageAltText(file))
+      insertMarkdownSnippet(`\n\n![${alt}](${path})\n\n`)
+      errorMessage = null
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  async function onImageSelected(e: Event) {
+    const target = e.target as HTMLInputElement
+    const file = target.files?.[0]
+    target.value = ''
+    if (!file) return
+    await insertImageFile(file)
   }
 
   function handleHelp() {
@@ -571,38 +843,53 @@
     const files = e.dataTransfer?.files
     if (!files || files.length === 0) return
 
-    const file = files[0]
-    if (
-      !file.name.endsWith('.md') &&
-      !file.name.endsWith('.markdown') &&
-      !file.name.endsWith('.txt')
-    ) {
+    const markdownFile = getMarkdownImportFile(files)
+    if (markdownFile) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const content = event.target?.result
+        if (typeof content === 'string') {
+          markdown = content
+        }
+      }
+      reader.readAsText(markdownFile)
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const content = event.target?.result
-      if (typeof content === 'string') {
-        markdown = content
-      }
+    const imageFile = getImageDropFile(files)
+    if (imageFile) {
+      void insertImageFile(imageFile)
     }
-    reader.readAsText(file)
+  }
+
+  async function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    for (const item of items) {
+      if (!item.type.startsWith('image/')) continue
+      const file = item.getAsFile()
+      if (!file) continue
+      e.preventDefault()
+      await insertImageFile(file)
+      return
+    }
   }
 
   function fitWidth() {
-    if (!pdfViewer || !pdfViewerContainerEl) return
-    if (pdfViewerContainerEl.offsetParent === null) return
+    const container = getActivePreviewContainer()
+    if (!pdfViewer || !container) return
+    if (container.offsetParent === null) return
     pdfViewer.currentScaleValue = 'page-width'
   }
 
   // ResizeObserver for auto-fit
   $effect(() => {
-    if (!pdfViewerContainerEl || !browser) return
+    if (!previewContainerEl || !browser) return
     const observer = new ResizeObserver(() => {
       fitWidth()
     })
-    observer.observe(pdfViewerContainerEl)
+    observer.observe(previewContainerEl)
     return () => observer.disconnect()
   })
 </script>
@@ -642,6 +929,7 @@
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
+  onpaste={handlePaste}
   role="application"
 >
   {#if isDragging}
@@ -652,7 +940,7 @@
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        <span>{lang === 'zh' ? '拖入 .md 文件' : 'Drop .md file here'}</span>
+        <span>{lang === 'zh' ? '拖入 .md / 图片 文件' : 'Drop .md or image files here'}</span>
       </div>
     </div>
   {/if}
@@ -664,6 +952,13 @@
     style="display: none;"
     bind:this={fileInputEl}
     onchange={onFileSelected}
+  />
+  <input
+    type="file"
+    accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+    class="sr-only"
+    bind:this={imageInputEl}
+    onchange={onImageSelected}
   />
 
   <!-- Navbar -->
@@ -866,35 +1161,54 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="editor-toolbar">
-        <div class="editor-mode-toggle">
-          <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
-            {lang === 'zh' ? '编辑' : 'Edit'}
-          </button>
-          <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
-            {lang === 'zh' ? '源码' : 'Code'}
+        <div class="editor-toolbar-left">
+          <div class="editor-mode-toggle">
+            <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
+              {lang === 'zh' ? '编辑' : 'Edit'}
+            </button>
+            <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
+              {lang === 'zh' ? '源码' : 'Code'}
+            </button>
+          </div>
+          <div class="toolbar-divider"></div>
+          <button class="toolbar-icon-btn" onclick={handleOpenImage} title={lang === 'zh' ? '插入图片' : 'Insert image'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="9.5" r="1.5"></circle>
+              <path d="M21 15l-5-5L5 20"></path>
+            </svg>
+            {lang === 'zh' ? '图片' : 'Image'}
           </button>
         </div>
-        <select
-          class="toolbar-select"
-          onchange={(e) => {
-            const target = e.target as HTMLSelectElement
-            const idx = parseInt(target.value, 10)
-            if (!isNaN(idx)) {
-              loadTemplate(templates[idx])
-            }
-            target.value = ''
-          }}
-        >
-          <option value="" disabled selected>{lang === 'zh' ? '模板' : 'Templates'}</option>
-          {#each templates as tmpl, idx}
-            <option value={idx}>{tmpl.icon} {tmpl.name}</option>
-          {/each}
-        </select>
+        <div class="editor-toolbar-right">
+          <select
+            class="toolbar-select"
+            onchange={(e) => {
+              const target = e.target as HTMLSelectElement
+              const idx = parseInt(target.value, 10)
+              if (!isNaN(idx)) {
+                loadTemplate(templates[idx])
+              }
+              target.value = ''
+            }}
+          >
+            <option value="" disabled selected>{lang === 'zh' ? '模板' : 'Templates'}</option>
+            {#each templates as tmpl, idx}
+              <option value={idx}>{tmpl.icon} {tmpl.name}</option>
+            {/each}
+          </select>
+        </div>
       </div>
       {#if editorMode === 'wysiwyg'}
-        <WysiwygEditor bind:markdown placeholder={t('placeholder')} />
+        <WysiwygEditor
+          bind:this={wysiwygEditor}
+          bind:markdown
+          placeholder={t('placeholder')}
+          imageUpload={saveLocalImage}
+          resolveImageUrl={resolveImageUrl}
+        />
       {:else}
-        <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
+        <MarkdownEditor bind:this={markdownEditor} bind:markdown placeholder={t('placeholder')} />
       {/if}
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
@@ -905,12 +1219,15 @@
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        {lang === 'zh' ? '拖入 .md / .txt 文件导入' : 'Drop .md / .txt files to import'}
+        {lang === 'zh'
+          ? '拖入 .md / .txt 导入，或拖拽 / 粘贴图片插入'
+          : 'Drop .md / .txt to import, or drag / paste images to insert'}
       </div>
     </section>
 
     <!-- Resizer -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div
       class="resizer hidden-mobile"
       class:active={isResizing}
@@ -962,12 +1279,7 @@
               disabled={!pdfDoc || pdfPage >= pdfPages}>&rarr;</button
             >
           </div>
-          {#if status === 'compiling'}
-            <div class="compiling-badge">
-              <div class="spinner-xs"></div>
-              <span>{lang === 'zh' ? '正在排版...' : 'Typing...'}</span>
-            </div>
-          {:else if status === 'error'}
+          {#if status === 'error'}
             <div class="error-badge">
               <span>⚠️ {lang === 'zh' ? '编译失败' : 'Failed'}</span>
             </div>
@@ -986,9 +1298,25 @@
           </button>
         </div>
       </div>
-      <div class="preview-container">
-        <div class="pdfjs-container" bind:this={pdfViewerContainerEl}>
-          <div class="pdfViewer" bind:this={pdfViewerEl}></div>
+      <div class="preview-container" bind:this={previewContainerEl}>
+        {#if showPreviewCompilingHint}
+          <StatusHint label={lang === 'zh' ? '更新预览中' : 'Updating preview'} />
+        {/if}
+        <div
+          class="pdfjs-container"
+          class:active={activePreviewSlot === 0}
+          class:inactive={activePreviewSlot !== 0}
+          bind:this={pdfViewerContainerElA}
+        >
+          <div class="pdfViewer" bind:this={pdfViewerElA}></div>
+        </div>
+        <div
+          class="pdfjs-container"
+          class:active={activePreviewSlot === 1}
+          class:inactive={activePreviewSlot !== 1}
+          bind:this={pdfViewerContainerElB}
+        >
+          <div class="pdfViewer" bind:this={pdfViewerElB}></div>
         </div>
         {#if status === 'compiling' && !pdfBytes}
           <div class="preview-placeholder">
@@ -1014,6 +1342,18 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .drop-overlay {
@@ -1215,6 +1555,13 @@
     gap: 6px;
   }
 
+  .editor-toolbar-left,
+  .editor-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .editor-mode-toggle {
     display: flex;
     background: var(--color-gray-200, #e5e7eb);
@@ -1239,6 +1586,33 @@
     background: var(--color-white, #fff);
     color: var(--color-gray-900, #111);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--color-gray-200, #e5e7eb);
+  }
+
+  .toolbar-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--color-white, #fff);
+    color: var(--color-gray-600, #4b5563);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .toolbar-icon-btn:hover {
+    background: var(--color-gray-100, #f3f4f6);
+    border-color: var(--color-gray-300, #d1d5db);
+    color: var(--color-gray-900, #111827);
   }
 
 
@@ -1356,7 +1730,6 @@
     gap: var(--space-md);
   }
 
-  .compiling-badge,
   .error-badge {
     display: flex;
     align-items: center;
@@ -1368,23 +1741,9 @@
     animation: fadeIn 0.2s ease-out;
   }
 
-  .compiling-badge {
-    background: var(--color-gray-100);
-    color: var(--color-gray-600);
-  }
-
   .error-badge {
     background: #fef2f2;
     color: #ef4444;
-  }
-
-  .spinner-xs {
-    width: 12px;
-    height: 12px;
-    border: 2px solid var(--color-gray-300);
-    border-top-color: var(--color-gray-600);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
   }
 
   @keyframes spin {
@@ -1409,6 +1768,19 @@
     inset: 0;
     overflow: auto;
     padding: var(--space-lg);
+    transition: opacity 0.18s ease-out;
+  }
+
+  .pdfjs-container.active {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .pdfjs-container.inactive {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .preview-placeholder {

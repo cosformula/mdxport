@@ -3,9 +3,8 @@ import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 // @ts-ignore
-import remarkMark from 'remark-mark';
 // @ts-ignore
-// @ts-ignore
+import remarkPagebreakToken from './plugins/remark-pagebreak-token';
 import remarkSupersub from './plugins/remark-simple-supersub';
 import remarkParse from 'remark-parse';
 import { tex2typst } from 'tex2typst';
@@ -61,18 +60,29 @@ interface InlineMathNode extends Literal {
 	type: 'inlineMath';
 }
 
+interface PageBreakNode extends Literal {
+	type: 'pageBreak';
+}
+
+type RenderableNode = Content | Definition | FootnoteDefinition | Yaml | PageBreakNode;
+
 export type MarkdownToTypstOptions = {
 	title?: string;
 	authors?: string[];
 	style?: TypstStyleId;
 	lang?: 'zh' | 'en';
 	font?: 'sans' | 'serif';
+	size?: 'compact' | 'regular' | 'large';
+	density?: 'tight' | 'comfortable' | 'relaxed';
 };
 
 export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-gradient' | 'redbook-forest' | 'redbook-blueprint';
 
 // Module-scoped style for use in renderBlock without threading through all calls
 let currentStyle: TypstStyleId = 'modern-tech';
+let currentSize: NonNullable<MarkdownToTypstOptions['size']> = 'compact';
+let currentDensity: NonNullable<MarkdownToTypstOptions['density']> = 'comfortable';
+const EXTRA_BLANK_LINE_TOKEN = '[[mdxport-blank-line]]';
 
 const STYLE_TO_TEMPLATE: Record<TypstStyleId, { path: string; entry: string }> = {
 	'modern-tech': { path: 'styles/modern-tech.typ', entry: 'article' },
@@ -87,6 +97,10 @@ const STYLE_TO_TEMPLATE: Record<TypstStyleId, { path: string; entry: string }> =
 
 export function markdownToTypst(markdown: string, options: MarkdownToTypstOptions = {}): string {
 	currentStyle = options.style ?? 'modern-tech';
+	currentSize = options.size ?? 'compact';
+	currentDensity = options.density ?? 'comfortable';
+	const isRedbookStyle = currentStyle.startsWith('redbook');
+	const normalizedMarkdown = injectExtraBlankLineTokens(markdown);
 
 	const processor = unified()
 		.use(remarkParse)
@@ -94,9 +108,10 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 		.use(remarkGfm, { singleTilde: false })
 		.use(remarkMath)
 		//.use(remarkMark)
+		.use(remarkPagebreakToken)
 		.use(remarkSupersub);
 
-	const parsedTree = processor.parse(markdown);
+	const parsedTree = processor.parse(normalizedMarkdown);
 	const tree = processor.runSync(parsedTree) as Root;
 	const definitions = collectDefinitions(tree);
 	const footnoteDefinitions = collectFootnotes(tree);
@@ -106,19 +121,21 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 		index: null
 	};
 
-	const title = options.title ?? frontmatter.title ?? leadingTitle ?? '';
-	const authors = options.authors ?? frontmatter.authors ?? [];
+	const title = isRedbookStyle ? (options.title ?? '') : options.title ?? frontmatter.title ?? leadingTitle ?? '';
+	const authors = isRedbookStyle ? (options.authors ?? []) : options.authors ?? frontmatter.authors ?? [];
 	const lang = coerceLanguage(frontmatter.lang) ?? options.lang ?? 'zh';
 
 	const nodesForBody =
-		leadingTitleIndex !== null && normalizeText(title) === normalizeText(leadingTitle)
+		!isRedbookStyle && leadingTitleIndex !== null && normalizeText(title) === normalizeText(leadingTitle)
 			? tree.children.filter((_, index) => index !== leadingTitleIndex)
 			: tree.children;
 
-	const body = nodesForBody
-		.map((node) => renderBlock(node, 0, definitions, footnoteDefinitions))
-		.filter(isNonEmpty)
-		.join('\n\n');
+	const body = isRedbookStyle
+		? renderRedbookBody(nodesForBody, definitions, footnoteDefinitions)
+		: nodesForBody
+				.map((node) => renderBlock(node, 0, definitions, footnoteDefinitions))
+				.filter(isNonEmpty)
+				.join('\n\n');
 
 	const header: string[] = [];
 	const styleId: TypstStyleId = options.style ?? 'modern-tech';
@@ -129,13 +146,55 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 		title ? `title: "${escapeTypstString(title)}"` : null,
 		authors.length ? `authors: ${renderTypstArray(authors.map((a) => `"${escapeTypstString(a)}"`))}` : null,
 		`lang: "${lang}"`,
-		font !== 'sans' ? `font: "${font}"` : null
+		font !== 'sans' ? `font: "${font}"` : null,
+		options.size && options.size !== 'compact' ? `size: "${options.size}"` : null,
+		options.density && options.density !== 'comfortable'
+			? `density: "${options.density}"`
+			: null
 	]
 		.filter(isNonEmpty)
 		.join(', ');
 	header.push(showArgs ? `#show: ${template.entry}.with(${showArgs})` : `#show: ${template.entry}`);
 
 	return [header.join('\n'), '', body, ''].join('\n');
+}
+
+function renderRedbookBody(
+	nodes: RenderableNode[],
+	definitions: Map<string, Definition>,
+	footnoteDefinitions: Map<string, FootnoteDefinition>
+): string {
+	const segments = splitRedbookSegments(nodes);
+	return segments
+		.map((segment) => {
+			return segment
+				.map((node) => renderBlock(node as Content, 0, definitions, footnoteDefinitions))
+				.filter(isNonEmpty)
+				.join('\n\n');
+		})
+		.filter((s) => s.trim() !== '')
+		.join('\n\n#pagebreak()\n\n');
+}
+
+function splitRedbookSegments(nodes: RenderableNode[]): RenderableNode[][] {
+	const segments: RenderableNode[][] = [];
+	let current: RenderableNode[] = [];
+
+	for (const node of nodes) {
+		if (isRedbookPageBreak(node)) {
+			if (current.length) segments.push(current);
+			current = [];
+			continue;
+		}
+		current.push(node);
+	}
+
+	if (current.length) segments.push(current);
+	return segments;
+}
+
+function isRedbookPageBreak(node: RenderableNode): boolean {
+	return node.type === 'pageBreak' || node.type === 'thematicBreak';
 }
 
 function renderTypstArray(items: string[]): string {
@@ -308,7 +367,7 @@ function renderBlock(
 	definitions: Map<string, Definition>,
 	footnoteDefinitions: Map<string, FootnoteDefinition>
 ): string | null {
-	switch (node.type) {
+	switch ((node as any).type) {
 		case 'yaml':
 		case 'definition':
 		case 'footnoteDefinition':
@@ -326,6 +385,8 @@ function renderBlock(
 			return renderCodeBlock(node as Code, indentLevel);
 		case 'blockquote':
 			return renderBlockquote(node as Blockquote, indentLevel, definitions, footnoteDefinitions);
+		case 'pageBreak':
+			return renderPageBreak(node as unknown as PageBreakNode, indentLevel);
 		case 'thematicBreak':
 			if (currentStyle.startsWith('redbook') && indentLevel === 0) {
 				return indentLines('#pagebreak()', indentLevel);
@@ -345,6 +406,10 @@ function renderMathBlock(node: MathNode, indentLevel: number): string {
 	// Convert LaTeX math to Typst math using tex2typst
 	const typstMath = convertLatexToTypst(node.value.trim());
 	return indentLines(`$ ${typstMath} $`, indentLevel);
+}
+
+function renderPageBreak(_node: PageBreakNode, indentLevel: number): string {
+	return indentLines('#pagebreak()', indentLevel);
 }
 
 /**
@@ -382,6 +447,9 @@ function renderParagraph(
 	const text = plainTextFromPhrasing(node.children, definitions).trim().toLowerCase();
 	if (text === '[toc]') {
 		return `#outline(title: auto, indent: auto)`;
+	}
+	if (text === EXTRA_BLANK_LINE_TOKEN) {
+		return `#v(${spacerHeightForCurrentLayout()})`;
 	}
 	return renderInlines(node.children, definitions, footnoteDefinitions);
 }
@@ -552,7 +620,7 @@ function renderInline(
 ): string | null {
 	switch ((node as any).type) {
 		case 'text':
-			return escapeTypstText((node as Text).value);
+			return renderTextNode((node as Text).value);
 		case 'strong':
 			// Use #strong[] function form to avoid ambiguity with /* comments and other edge cases
 			return `#strong[${renderInlines((node as Strong).children, definitions, footnoteDefinitions)}]`;
@@ -601,6 +669,94 @@ function renderInline(
 function renderInlineCode(node: InlineCode): string {
 	const value = node.value.replace(/`/g, '\\`');
 	return `\`${value}\``;
+}
+
+function renderTextNode(value: string): string {
+	return value
+		.split('\n')
+		.map((part) => escapeTypstText(part))
+		.join('\\\n');
+}
+
+function injectExtraBlankLineTokens(markdown: string): string {
+	const frontmatterMatch = markdown.match(/^---\n[\s\S]*?\n---(?:\n|$)/);
+	const frontmatter = frontmatterMatch?.[0] ?? '';
+	const body = frontmatter ? markdown.slice(frontmatter.length) : markdown;
+
+	if (!body.includes('\n\n\n')) {
+		return markdown;
+	}
+
+	const lines = body.split(/\r?\n/);
+	const result: string[] = [];
+	let activeFence: string | null = null;
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		const fenceMatch = /^(\s*)(`{3,}|~{3,})/.exec(line);
+		if (fenceMatch) {
+			const marker = fenceMatch[2][0];
+			if (!activeFence) {
+				activeFence = marker;
+			} else if (activeFence === marker) {
+				activeFence = null;
+			}
+			result.push(line);
+			continue;
+		}
+
+		if (activeFence) {
+			result.push(line);
+			continue;
+		}
+
+		if (line.trim() !== '') {
+			result.push(line);
+			continue;
+		}
+
+		let j = i;
+		while (j < lines.length && lines[j].trim() === '') j++;
+		const blankCount = j - i;
+		const previousLine = result.length > 0 ? result[result.length - 1] : '';
+		const nextLine = j < lines.length ? lines[j] : '';
+		const canInsertSpacer =
+			blankCount > 1 &&
+			shouldPreserveExtraBlankLines(previousLine) &&
+			shouldPreserveExtraBlankLines(nextLine);
+
+		result.push('');
+		if (canInsertSpacer) {
+			for (let extra = 1; extra < blankCount; extra++) {
+				result.push(EXTRA_BLANK_LINE_TOKEN, '');
+			}
+		}
+		i = j - 1;
+	}
+
+	return frontmatter + result.join('\n');
+}
+
+function shouldPreserveExtraBlankLines(line: string): boolean {
+	const trimmed = line.trim();
+	if (!trimmed) return false;
+	if (/^(`{3,}|~{3,})/.test(trimmed)) return false;
+	if (/^([*-+]|\d+\.)\s/.test(trimmed)) return false;
+	if (/^>/.test(trimmed)) return false;
+	if (/^\|/.test(trimmed)) return false;
+	if (/^#{1,6}\s/.test(trimmed)) return true;
+	if (/^\[\[pagebreak\]\]$/i.test(trimmed)) return false;
+	return !/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed);
+}
+
+function spacerHeightForCurrentLayout(): string {
+	if (currentDensity === 'tight') {
+		return currentSize === 'large' ? '0.45em' : currentSize === 'regular' ? '0.4em' : '0.35em';
+	}
+	if (currentDensity === 'relaxed') {
+		return currentSize === 'large' ? '0.8em' : currentSize === 'regular' ? '0.72em' : '0.64em';
+	}
+	return currentSize === 'large' ? '0.62em' : currentSize === 'regular' ? '0.56em' : '0.5em';
 }
 
 function renderImage(node: Image): string {

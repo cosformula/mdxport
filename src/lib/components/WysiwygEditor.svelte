@@ -1,18 +1,40 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import { browser } from '$app/environment'
+  import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
 
   interface Props {
     markdown: string
     placeholder?: string
     cardMode?: boolean
+    imageUpload?: ((file: File) => Promise<string>) | null
+    resolveImageUrl?: ((url: string) => string | Promise<string>) | null
   }
 
-  let { markdown = $bindable(), placeholder = '', cardMode = false }: Props = $props()
+  let {
+    markdown = $bindable(),
+    placeholder = '',
+    cardMode = false,
+    imageUpload = null,
+    resolveImageUrl = null,
+  }: Props = $props()
 
   let containerEl = $state<HTMLDivElement | null>(null)
-  let crepeInstance: any = null
+  let crepeInstance = $state<any>(null)
   let suppressUpdate = false
+  let lastLocalMarkdown = $state<string | null>(null)
+
+  export function insertMarkdownAtSelection(md: string): boolean {
+    const instance = crepeInstance
+    if (!instance) return false
+
+    const { body } = editorValueFromMarkdown(md)
+    instance.crepe.editor.action(instance.insert(body))
+    instance.crepe.editor.action((ctx: any) => {
+      ctx.get(instance.editorViewCtx).focus()
+    })
+    return true
+  }
 
   // Strip YAML frontmatter before passing to Milkdown, restore on output
   const frontmatterRegex = /^---\n[\s\S]*?\n---\n*/
@@ -27,16 +49,33 @@
 
   let currentFrontmatter = ''
 
+  function editorValueFromMarkdown(md: string): { frontmatter: string; body: string } {
+    const { frontmatter, body } = stripFrontmatter(md)
+    const normalizedBody = cardMode
+      ? body.replace(/^\[\[pagebreak\]\]$/gm, '---')
+      : body
+    return { frontmatter, body: normalizedBody }
+  }
+
+  function markdownValueFromEditor(md: string): string {
+    const normalized = md.replace(/^[ \t]*\*\*\*$/gm, '---')
+    if (!cardMode) {
+      return currentFrontmatter + normalized
+    }
+    return currentFrontmatter + normalized.replace(/^---$/gm, PAGEBREAK_TOKEN)
+  }
+
   onMount(() => {
     if (!containerEl) return
 
     let destroyed = false
-    const { frontmatter, body } = stripFrontmatter(markdown)
+    const { frontmatter, body } = editorValueFromMarkdown(markdown)
     currentFrontmatter = frontmatter
 
     ;(async () => {
       const { Crepe } = await import('@milkdown/crepe')
-      const { replaceAll } = await import('@milkdown/kit/utils')
+      const { insert, replaceAll } = await import('@milkdown/kit/utils')
+      const { editorViewCtx } = await import('@milkdown/kit/core')
 
       // Import CSS
       await import('@milkdown/crepe/theme/common/style.css')
@@ -48,11 +87,19 @@
         root: containerEl!,
         defaultValue: body,
         features: {
-          [Crepe.Feature.ImageBlock]: false,
+          [Crepe.Feature.ImageBlock]: !!imageUpload,
           [Crepe.Feature.BlockEdit]: !cardMode,
         },
         featureConfigs: {
           [Crepe.Feature.Placeholder]: { text: placeholder || 'Start writing...' },
+          ...(imageUpload
+            ? {
+                [Crepe.Feature.ImageBlock]: {
+                  onUpload: imageUpload,
+                  proxyDomURL: resolveImageUrl ?? ((url: string) => url),
+                },
+              }
+            : {}),
         },
       })
 
@@ -60,17 +107,15 @@
       crepe.on((listener) => {
         listener.markdownUpdated((_ctx, md, prevMd) => {
           if (md !== prevMd && !suppressUpdate) {
-            // Normalize thematic breaks: *** → ---, and de-indent nested ones
-            const normalized = md
-              .replace(/^[ \t]*\*\*\*$/gm, '---')
-              .replace(/^[ \t]+---$/gm, '---')
-            markdown = currentFrontmatter + normalized
+            const nextMarkdown = markdownValueFromEditor(md)
+            lastLocalMarkdown = nextMarkdown
+            markdown = nextMarkdown
           }
         })
       })
 
       await crepe.create()
-      crepeInstance = { crepe, replaceAll }
+      crepeInstance = { crepe, editorViewCtx, insert, replaceAll }
     })()
 
     return () => {
@@ -84,16 +129,21 @@
 
   // Sync external markdown changes into Milkdown
   $effect(() => {
+    const instance = crepeInstance
     const md = markdown
+    if (!instance) return
+
     untrack(() => {
-      if (!crepeInstance) return
-      const { frontmatter, body } = stripFrontmatter(md)
+      if (md === lastLocalMarkdown) return
+
+      const { frontmatter, body } = editorValueFromMarkdown(md)
       currentFrontmatter = frontmatter
-      const currentMd = crepeInstance.crepe.getMarkdown()
+      const currentMd = instance.crepe.getMarkdown()
       if (body !== currentMd) {
         suppressUpdate = true
-        crepeInstance.crepe.editor.action(crepeInstance.replaceAll(body))
+        instance.crepe.editor.action(instance.replaceAll(body))
         suppressUpdate = false
+        lastLocalMarkdown = null
       }
     })
   })
@@ -164,7 +214,7 @@
   }
 
   .wysiwyg-host.card-mode :global(.ProseMirror hr::after) {
-    content: '✂ PAGE BREAK';
+    content: '[[pagebreak]]';
     position: absolute;
     top: 50%;
     left: 50%;

@@ -17,6 +17,24 @@
   let editorContainerEl = $state<HTMLDivElement | null>(null)
   let suppressEditorUpdate = false
 
+  export function insertTextAtSelection(text: string): boolean {
+    if (!editorView) return false
+
+    const { from, to } = editorView.state.selection.main
+    suppressEditorUpdate = true
+    editorView.dispatch({
+      changes: { from, to, insert: text },
+      selection: {
+        anchor: from + text.length,
+      },
+      scrollIntoView: true,
+    })
+    suppressEditorUpdate = false
+    markdown = editorView.state.doc.toString()
+    editorView.focus()
+    return true
+  }
+
   onMount(() => {
     if (!editorContainerEl) return
 

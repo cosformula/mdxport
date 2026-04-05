@@ -2,6 +2,7 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import remarkPagebreakToken from './plugins/remark-pagebreak-token';
 import type { Root, Content, Heading, Text, List, ListItem, Paragraph, Table, TableRow, TableCell, Strong, Emphasis, Link, InlineCode } from 'mdast';
 
 /**
@@ -13,7 +14,8 @@ export function markdownToHtml(markdown: string): string {
     const processor = unified()
       .use(remarkParse)
       .use(remarkGfm)
-      .use(remarkMath);
+      .use(remarkMath)
+      .use(remarkPagebreakToken);
 
     const tree = processor.parse(markdown) as Root;
     return renderNodes(tree.children);
@@ -28,7 +30,7 @@ function renderNodes(nodes: Content[]): string {
 }
 
 function renderNode(node: Content): string {
-  switch (node.type) {
+  switch ((node as any).type) {
     case 'heading': {
       const h = node as Heading;
       const tag = `h${Math.min(6, h.depth)}`;
@@ -64,6 +66,7 @@ function renderNode(node: Content): string {
     case 'blockquote':
       return `<blockquote>${renderNodes((node as any).children as any)}</blockquote>`;
     case 'thematicBreak':
+    case 'pageBreak':
       return '<hr />';
     default:
       return '';

@@ -5,13 +5,14 @@
   import { getPdfjs } from '$lib/pdf/pdfjs'
   import { markdownToTypst } from '$lib/pipeline/markdownToTypst'
   import type { TypstStyleId } from '$lib/pipeline/markdownToTypst'
-  import { TypstWorkerClient } from '$lib/workers/typstClient'
+  import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
   import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
   import CardGallery from '$lib/components/CardGallery.svelte'
   import { REDBOOK_TEMPLATES } from '$lib/templates/redbook-templates'
+  import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
 
   // Props
   interface Props {
@@ -25,11 +26,22 @@
   // ========================================
   // State
   // ========================================
-  let markdown = $state(REDBOOK_TEMPLATES[lang]?.[0]?.content ?? '')
+  let markdown = $state('')
+  let hasInitializedMarkdown = false
+  let markdownEditor = $state<MarkdownEditor | null>(null)
+  let wysiwygEditor = $state<WysiwygEditor | null>(null)
+  let imageInput = $state<HTMLInputElement | null>(null)
 
   let leftPaneWidth = $state(50)
   let isResizing = $state(false)
   let isDragging = $state(false)
+
+  type LocalImageAsset = {
+    bytes: Uint8Array
+    objectUrl: string
+  }
+
+  let imageAssets = $state<Record<string, LocalImageAsset>>({})
 
   let editorMode = $state<'code' | 'wysiwyg'>(
     (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
@@ -50,6 +62,17 @@
   let font = $state<'sans' | 'serif'>(
     (browser && (localStorage.getItem('mdxport-card-font') as 'sans' | 'serif')) ||
       'sans',
+  )
+
+  let cardSize = $state<'compact' | 'regular' | 'large'>(
+    (browser && (localStorage.getItem('mdxport-card-size') as 'compact' | 'regular' | 'large')) ||
+      'compact',
+  )
+
+  let cardDensity = $state<'tight' | 'comfortable' | 'relaxed'>(
+    (browser &&
+      (localStorage.getItem('mdxport-card-density') as 'tight' | 'comfortable' | 'relaxed')) ||
+      'comfortable',
   )
 
   let cardColumns = $state(
@@ -75,6 +98,12 @@
   // Mobile state
   let activeMobileTab = $state<'editor' | 'preview'>('editor')
   let isMenuOpen = $state(false)
+
+  $effect(() => {
+    if (hasInitializedMarkdown) return
+    markdown = REDBOOK_TEMPLATES[lang]?.[0]?.content ?? ''
+    hasInitializedMarkdown = true
+  })
 
   // ========================================
   // UI Text
@@ -128,7 +157,7 @@
       // ignore
     }
 
-    client = new TypstWorkerClient()
+    client = getSharedTypstWorkerClient()
 
     let aborted = false
 
@@ -140,7 +169,7 @@
       isLoading = false
 
       // Trigger first compile
-      void compile(markdown, style, lang, font)
+      void compile(markdown, style, lang, font, cardSize, cardDensity)
     })().catch((error) => {
       console.error(error)
       isLoading = false
@@ -155,7 +184,9 @@
     return () => {
       aborted = true
       window.removeEventListener('click', handleClickOutside)
-      client?.dispose()
+      for (const asset of Object.values(imageAssets)) {
+        URL.revokeObjectURL(asset.objectUrl)
+      }
     }
   })
 
@@ -166,6 +197,8 @@
     if (!browser) return
     localStorage.setItem('mdxport-redbook-style', style)
     localStorage.setItem('mdxport-card-font', font)
+    localStorage.setItem('mdxport-card-size', cardSize)
+    localStorage.setItem('mdxport-card-density', cardDensity)
     localStorage.setItem('mdxport-card-columns', String(cardColumns))
     localStorage.setItem('mdxport-editor-mode', editorMode)
   })
@@ -210,12 +243,14 @@
     const _style = style
     const _lang = lang
     const _font = font
+    const _cardSize = cardSize
+    const _cardDensity = cardDensity
 
     if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
 
     const delay = hasEverCompiled ? 450 : 0
     autoPreviewTimer = window.setTimeout(() => {
-      void compile(md, _style, _lang, _font)
+      void compile(md, _style, _lang, _font, _cardSize, _cardDensity)
     }, delay)
 
     return () => {
@@ -231,6 +266,8 @@
     nextStyle: TypstStyleId,
     docLang: UILang,
     compileFont: 'sans' | 'serif' = 'sans',
+    compileSize: 'compact' | 'regular' | 'large' = 'compact',
+    compileDensity: 'tight' | 'comfortable' | 'relaxed' = 'comfortable',
   ) {
     if (!client) return
     hasEverCompiled = true
@@ -276,10 +313,14 @@
         processedMd = newContent
       }
 
+      Object.assign(images, collectReferencedImageAssets(processedMd))
+
       const mainTypst = markdownToTypst(processedMd, {
         style: nextStyle,
         lang: docLang,
         font: compileFont,
+        size: compileSize,
+        density: compileDensity,
       })
       // @ts-ignore
       const pdfData = await client.compilePdf(mainTypst, images)
@@ -330,9 +371,124 @@
     markdown = templateContent
   }
 
+  function openImagePicker() {
+    imageInput?.click()
+  }
+
   function insertPageBreak() {
+    const insertion = `\n\n${PAGEBREAK_TOKEN}\n\n`
+    if (editorMode === 'code' && markdownEditor?.insertTextAtSelection(insertion)) {
+      return
+    }
+    if (editorMode === 'wysiwyg' && wysiwygEditor?.insertMarkdownAtSelection(insertion)) {
+      return
+    }
+
     const trimmed = markdown.trimEnd()
-    markdown = trimmed + '\n\n---\n\n'
+    markdown = trimmed
+      ? `${trimmed}${insertion}`
+      : `${PAGEBREAK_TOKEN}\n\n`
+  }
+
+  function getImageExtension(file: File): string {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext && /^[a-z0-9]+$/.test(ext)) return ext
+    switch (file.type) {
+      case 'image/jpeg':
+        return 'jpg'
+      case 'image/png':
+        return 'png'
+      case 'image/webp':
+        return 'webp'
+      case 'image/svg+xml':
+        return 'svg'
+      case 'image/gif':
+        return 'gif'
+      default:
+        return 'png'
+    }
+  }
+
+  function getImageAltText(file: File): string {
+    return file.name.replace(/\.[^.]+$/, '').trim() || 'Image'
+  }
+
+  function escapeMarkdownImageAlt(text: string): string {
+    return text.replace(/[[\]\\]/g, '\\$&')
+  }
+
+  function createAssetId(): string {
+    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : String(Date.now())
+  }
+
+  async function saveLocalImage(file: File): Promise<string> {
+    if (!file.type.startsWith('image/')) {
+      throw new Error(lang === 'zh' ? '仅支持图片文件' : 'Only image files are supported')
+    }
+
+    const path = `images/${createAssetId()}.${getImageExtension(file)}`
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const objectUrl = URL.createObjectURL(file)
+
+    imageAssets[path] = {
+      bytes,
+      objectUrl,
+    }
+
+    return path
+  }
+
+  function resolveImageUrl(path: string): string {
+    return imageAssets[path]?.objectUrl ?? path
+  }
+
+  function insertMarkdownSnippet(snippet: string): void {
+    if (editorMode === 'code' && markdownEditor?.insertTextAtSelection(snippet)) {
+      return
+    }
+    if (editorMode === 'wysiwyg' && wysiwygEditor?.insertMarkdownAtSelection(snippet)) {
+      return
+    }
+
+    const trimmed = markdown.trimEnd()
+    markdown = trimmed ? `${trimmed}${snippet}` : snippet.trimStart()
+  }
+
+  function collectReferencedImageAssets(md: string): Record<string, Uint8Array> {
+    const referenced = new Set<string>()
+    const markdownImageRegex = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+
+    for (const match of md.matchAll(markdownImageRegex)) {
+      const path = match[1]
+      if (path in imageAssets) {
+        referenced.add(path)
+      }
+    }
+
+    return Object.fromEntries(
+      [...referenced].map((path) => [path, imageAssets[path].bytes]),
+    )
+  }
+
+  async function insertImageFile(file: File): Promise<void> {
+    try {
+      const path = await saveLocalImage(file)
+      const alt = escapeMarkdownImageAlt(getImageAltText(file))
+      insertMarkdownSnippet(`\n\n![${alt}](${path})\n\n`)
+      errorMessage = null
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  async function handleImageInputChange(e: Event) {
+    const target = e.target as HTMLInputElement
+    const file = target.files?.[0]
+    target.value = ''
+    if (!file) return
+    await insertImageFile(file)
   }
 
   // ========================================
@@ -385,6 +541,26 @@
     return e.dataTransfer?.types?.includes('Files') ?? false
   }
 
+  function getMarkdownImportFile(files: FileList): File | null {
+    for (const file of files) {
+      if (
+        file.name.endsWith('.md') ||
+        file.name.endsWith('.markdown') ||
+        file.name.endsWith('.txt')
+      ) {
+        return file
+      }
+    }
+    return null
+  }
+
+  function getImageDropFile(files: FileList): File | null {
+    for (const file of files) {
+      if (file.type.startsWith('image/')) return file
+    }
+    return null
+  }
+
   function handleDragOver(e: DragEvent) {
     if (!hasFiles(e)) return
     e.preventDefault()
@@ -405,23 +581,37 @@
     const files = e.dataTransfer?.files
     if (!files || files.length === 0) return
 
-    const file = files[0]
-    if (
-      !file.name.endsWith('.md') &&
-      !file.name.endsWith('.markdown') &&
-      !file.name.endsWith('.txt')
-    ) {
+    const markdownFile = getMarkdownImportFile(files)
+    if (markdownFile) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const content = event.target?.result
+        if (typeof content === 'string') {
+          markdown = content
+        }
+      }
+      reader.readAsText(markdownFile)
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const content = event.target?.result
-      if (typeof content === 'string') {
-        markdown = content
-      }
+    const imageFile = getImageDropFile(files)
+    if (imageFile) {
+      void insertImageFile(imageFile)
     }
-    reader.readAsText(file)
+  }
+
+  async function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    for (const item of items) {
+      if (!item.type.startsWith('image/')) continue
+      const file = item.getAsFile()
+      if (!file) continue
+      e.preventDefault()
+      await insertImageFile(file)
+      return
+    }
   }
 </script>
 
@@ -440,6 +630,7 @@
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
+  onpaste={handlePaste}
   role="application"
 >
   {#if isDragging}
@@ -450,7 +641,7 @@
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        <span>{lang === 'zh' ? '拖入 .md 文件' : 'Drop .md file here'}</span>
+        <span>{lang === 'zh' ? '拖入 .md / 图片 文件' : 'Drop .md or image files here'}</span>
       </div>
     </div>
   {/if}
@@ -614,6 +805,14 @@
             </svg>
             {lang === 'zh' ? '分页' : 'Break'}
           </button>
+          <button class="toolbar-icon-btn" onclick={openImagePicker} title={lang === 'zh' ? '插入图片' : 'Insert image'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="9.5" r="1.5"></circle>
+              <path d="M21 15l-5-5L5 20"></path>
+            </svg>
+            {lang === 'zh' ? '图片' : 'Image'}
+          </button>
         </div>
         <div class="editor-toolbar-right">
           <select
@@ -634,10 +833,24 @@
           </select>
         </div>
       </div>
+      <input
+        bind:this={imageInput}
+        class="sr-only"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+        onchange={handleImageInputChange}
+      />
       {#if editorMode === 'wysiwyg'}
-        <WysiwygEditor bind:markdown placeholder={t('placeholder')} cardMode />
+        <WysiwygEditor
+          bind:this={wysiwygEditor}
+          bind:markdown
+          placeholder={t('placeholder')}
+          cardMode
+          imageUpload={saveLocalImage}
+          resolveImageUrl={resolveImageUrl}
+        />
       {:else}
-        <MarkdownEditor bind:markdown placeholder={t('placeholder')} />
+        <MarkdownEditor bind:this={markdownEditor} bind:markdown placeholder={t('placeholder')} />
       {/if}
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
@@ -648,7 +861,9 @@
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        {lang === 'zh' ? '拖入 .md / .txt 文件导入' : 'Drop .md / .txt files to import'}
+        {lang === 'zh'
+          ? '拖入 .md / .txt 导入，或拖拽 / 粘贴图片插入'
+          : 'Drop .md / .txt to import, or drag / paste images to insert'}
       </div>
     </section>
 
@@ -702,6 +917,16 @@
             <option value="sans">{lang === 'zh' ? '无衬线' : 'Sans'}</option>
             <option value="serif">{lang === 'zh' ? '衬线' : 'Serif'}</option>
           </select>
+          <select class="font-select" bind:value={cardSize}>
+            <option value="compact">{lang === 'zh' ? '紧凑' : 'Compact'}</option>
+            <option value="regular">{lang === 'zh' ? '标准' : 'Regular'}</option>
+            <option value="large">{lang === 'zh' ? '大字' : 'Large'}</option>
+          </select>
+          <select class="font-select" bind:value={cardDensity}>
+            <option value="tight">{lang === 'zh' ? '紧密' : 'Tight'}</option>
+            <option value="comfortable">{lang === 'zh' ? '舒适' : 'Comfortable'}</option>
+            <option value="relaxed">{lang === 'zh' ? '宽松' : 'Relaxed'}</option>
+          </select>
           <select class="columns-select" bind:value={cardColumns}>
             <option value={0}>{lang === 'zh' ? '自动排列' : 'Auto'}</option>
             <option value={1}>1 {lang === 'zh' ? '列' : 'col'}</option>
@@ -735,6 +960,18 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .drop-overlay {
@@ -907,7 +1144,6 @@
     background: var(--color-gray-100, #f3f4f6);
   }
 
-  .template-select,
   .style-select,
   .font-select,
   .columns-select {
@@ -929,7 +1165,6 @@
     box-sizing: border-box;
   }
 
-  .template-select:hover,
   .style-select:hover,
   .font-select:hover,
   .columns-select:hover {

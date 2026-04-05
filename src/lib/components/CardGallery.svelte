@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { getPdfjs } from '$lib/pdf/pdfjs'
+  import StatusHint from '$lib/components/StatusHint.svelte'
   import type { PDFDocumentProxy } from 'pdfjs-dist'
 
   interface Props {
@@ -17,18 +18,28 @@
     pageNum: number
     blobUrl: string
     blob: Blob
+    hash: string
   }
 
   let cards = $state<CardItem[]>([])
   let rendering = $state(false)
+  let activeRenderPage = $state<number | null>(null)
+  let visibleRenderPage = $state<number | null>(null)
+  let pendingTotalPages = $state(0)
   let renderSeq = 0
   let currentDoc: PDFDocumentProxy | null = null
+  let renderHintTimer: number | null = null
 
   // Render PDF pages to card images when pdfBytes changes
   $effect(() => {
     const bytes = pdfBytes
     untrack(() => {
       if (!bytes) {
+        renderSeq += 1
+        rendering = false
+        activeRenderPage = null
+        visibleRenderPage = null
+        pendingTotalPages = 0
         cleanup()
         return
       }
@@ -39,11 +50,19 @@
     })
   })
 
-  function cleanup() {
-    for (const card of cards) {
+  function revokeCards(cardsToRevoke: CardItem[]) {
+    for (const card of cardsToRevoke) {
       URL.revokeObjectURL(card.blobUrl)
     }
+  }
+
+  function cleanup() {
+    revokeCards(cards)
     cards = []
+    activeRenderPage = null
+    visibleRenderPage = null
+    pendingTotalPages = 0
+    clearRenderHint()
     if (currentDoc) {
       currentDoc.destroy()
       currentDoc = null
@@ -51,25 +70,29 @@
   }
 
   async function renderPages(bytes: Uint8Array, seq: number) {
+    let doc: PDFDocumentProxy | null = null
     try {
       const pdfjs = await getPdfjs()
-      const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise
+      doc = await pdfjs.getDocument({ data: bytes.slice() }).promise
 
       if (seq !== renderSeq) {
         doc.destroy()
         return
       }
 
-      // Cleanup previous
-      cleanup()
-      currentDoc = doc
+      const previousCards = cards
+      const previousDoc = currentDoc
+      const nextCards = [...previousCards]
+      const createdBlobUrls: string[] = []
+      pendingTotalPages = doc.numPages
 
-      const newCards: CardItem[] = []
       const dpr = window.devicePixelRatio || 1
       const thumbCssWidth = 400
       const thumbPixelWidth = thumbCssWidth * dpr
 
       for (let i = 1; i <= doc.numPages; i++) {
+        activeRenderPage = i
+        scheduleRenderHint(i, seq)
         const page = await doc.getPage(i)
         const baseVp = page.getViewport({ scale: 1 })
         const scale = thumbPixelWidth / baseVp.width
@@ -81,23 +104,79 @@
         const ctx = canvas.getContext('2d')!
         await page.render({ canvasContext: ctx, canvas, viewport }).promise
 
-        if (seq !== renderSeq) return
+        if (seq !== renderSeq) {
+          for (const blobUrl of createdBlobUrls) {
+            URL.revokeObjectURL(blobUrl)
+          }
+          doc.destroy()
+          return
+        }
 
         const blob = await new Promise<Blob>((resolve) =>
           canvas.toBlob((b) => resolve(b!), 'image/png'),
         )
+        const hash = await hashBlob(blob)
+        const existing = nextCards[i - 1]
+
+        if (
+          existing &&
+          existing.pageNum === i &&
+          existing.hash === hash
+        ) {
+          clearRenderHint(i)
+          continue
+        }
+
         const blobUrl = URL.createObjectURL(blob)
-        newCards.push({ pageNum: i, blobUrl, blob })
+        createdBlobUrls.push(blobUrl)
+        nextCards[i - 1] = { pageNum: i, blobUrl, blob, hash }
+        if (existing) {
+          URL.revokeObjectURL(existing.blobUrl)
+        }
+        cards = nextCards.slice(0, Math.max(previousCards.length, i))
+        clearRenderHint(i)
       }
 
       if (seq === renderSeq) {
-        cards = newCards
+        currentDoc = doc
+        const removedCards = nextCards.slice(doc.numPages)
+        revokeCards(removedCards)
+        cards = nextCards.slice(0, doc.numPages)
         rendering = false
+        activeRenderPage = null
+        visibleRenderPage = null
+        pendingTotalPages = doc.numPages
+        clearRenderHint()
+        previousDoc?.destroy()
       }
     } catch {
+      doc?.destroy()
       if (seq === renderSeq) {
         rendering = false
+        activeRenderPage = null
+        visibleRenderPage = null
+        pendingTotalPages = cards.length
+        clearRenderHint()
       }
+    }
+  }
+
+  function scheduleRenderHint(pageNum: number, seq: number) {
+    clearRenderHint()
+    renderHintTimer = window.setTimeout(() => {
+      if (seq === renderSeq && activeRenderPage === pageNum) {
+        visibleRenderPage = pageNum
+      }
+    }, 180)
+  }
+
+  function clearRenderHint(pageNum?: number) {
+    if (renderHintTimer !== null) {
+      window.clearTimeout(renderHintTimer)
+      renderHintTimer = null
+    }
+    if (pageNum === undefined || visibleRenderPage === pageNum) {
+      visibleRenderPage = null
     }
   }
 
@@ -169,6 +248,18 @@
       canvas.toBlob((b) => resolve(b!), 'image/png'),
     )
   }
+
+  async function hashBlob(blob: Blob): Promise<string> {
+    const subtle = globalThis.crypto?.subtle
+    if (!subtle) {
+      return `${blob.size}`
+    }
+
+    const digest = await subtle.digest('SHA-256', await blob.arrayBuffer())
+    return Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('')
+  }
 </script>
 
 <div class="card-gallery">
@@ -227,16 +318,28 @@
                 </svg>
               </button>
             </div>
+            {#if rendering && visibleRenderPage === card.pageNum}
+              <StatusHint
+                label={lang === 'zh' ? '更新中' : 'Updating'}
+                position="top-left"
+              />
+            {/if}
             <span class="card-badge">{card.pageNum}/{cards.length}</span>
           </div>
         </div>
       {/each}
+      {#if rendering && visibleRenderPage !== null && activeRenderPage !== null && activeRenderPage > cards.length}
+        <div class="card-item">
+          <div class="card-image-wrapper card-image-wrapper-loading">
+            <StatusHint
+              label={lang === 'zh' ? '新增卡片中' : 'Adding card'}
+              position="top-left"
+            />
+            <span class="card-badge">{activeRenderPage}/{pendingTotalPages || activeRenderPage}</span>
+          </div>
+        </div>
+      {/if}
     </div>
-    {#if rendering}
-      <div class="card-gallery-loading-more">
-        <div class="card-spinner-sm"></div>
-      </div>
-    {/if}
   {/if}
 </div>
 
@@ -260,7 +363,12 @@
         <span class="lightbox-info">{lightboxCard.pageNum}/{cards.length}</span>
       </div>
     </div>
-    <button class="lightbox-close" onclick={closeLightbox}>
+    <button
+      class="lightbox-close"
+      onclick={closeLightbox}
+      aria-label={lang === 'zh' ? '关闭预览' : 'Close preview'}
+      title={lang === 'zh' ? '关闭预览' : 'Close preview'}
+    >
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <line x1="18" y1="6" x2="6" y2="18"></line>
         <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -271,6 +379,7 @@
 
 <style>
   .card-gallery {
+    position: relative;
     height: 100%;
     overflow-y: auto;
     padding: 16px;
@@ -307,6 +416,12 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     background: white;
     cursor: pointer;
+  }
+
+  .card-image-wrapper-loading {
+    background:
+      linear-gradient(135deg, rgba(249, 250, 251, 0.98), rgba(243, 244, 246, 0.98));
+    border: 1px dashed rgba(209, 213, 219, 0.95);
   }
 
   .card-image {
@@ -355,6 +470,7 @@
     position: absolute;
     bottom: 6px;
     right: 8px;
+    z-index: 3;
     font-size: 0.7rem;
     font-weight: 600;
     color: white;
@@ -364,25 +480,10 @@
     pointer-events: none;
   }
 
-  .card-gallery-loading-more {
-    display: flex;
-    justify-content: center;
-    padding: 16px 0;
-  }
-
   .card-spinner {
     width: 28px;
     height: 28px;
     border: 2.5px solid var(--color-gray-200, #e5e7eb);
-    border-top-color: var(--color-gray-500, #6b7280);
-    border-radius: 50%;
-    animation: card-spin 0.6s linear infinite;
-  }
-
-  .card-spinner-sm {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--color-gray-200, #e5e7eb);
     border-top-color: var(--color-gray-500, #6b7280);
     border-radius: 50%;
     animation: card-spin 0.6s linear infinite;
