@@ -62,7 +62,7 @@
           if (md !== prevMd && !suppressUpdate) {
             // Normalize thematic breaks: *** → ---, and de-indent nested ones
             const normalized = md
-              .replace(/^\*\*\*$/gm, '---')
+              .replace(/^[ \t]*\*\*\*$/gm, '---')
               .replace(/^[ \t]+---$/gm, '---')
             markdown = currentFrontmatter + normalized
           }
@@ -114,6 +114,14 @@
     min-height: 100%;
   }
 
+  .wysiwyg-host :global(.cm-activeLine) {
+    background: transparent !important;
+  }
+
+  .wysiwyg-host :global(.cm-activeLineGutter) {
+    background: transparent !important;
+  }
+
   .wysiwyg-host :global(.ProseMirror) {
     min-height: 100%;
     padding: 16px 20px;
@@ -140,22 +148,35 @@
   /* Card mode: style <hr> as a page break indicator */
   .wysiwyg-host.card-mode :global(.ProseMirror hr) {
     border: none;
-    border-top: 2px dashed #d4564d;
-    margin: 1.2em 0;
+    margin: 1.5em 0;
     position: relative;
+    padding: 12px 0;
+    background: repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 6px,
+      #e8d5d3 6px,
+      #e8d5d3 12px
+    );
+    background-size: 100% 2px;
+    background-repeat: no-repeat;
+    background-position: center;
   }
 
   .wysiwyg-host.card-mode :global(.ProseMirror hr::after) {
-    content: '↓ 分页 ↓';
+    content: '✂ PAGE BREAK';
     position: absolute;
-    top: -0.7em;
+    top: 50%;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translate(-50%, -50%);
     background: #fff;
     color: #d4564d;
-    font-size: 0.7em;
+    font-size: 12px;
     font-weight: 600;
-    padding: 0 8px;
-    letter-spacing: 0.05em;
+    padding: 2px 12px;
+    border: 1px solid #e8d5d3;
+    border-radius: 10px;
+    letter-spacing: 0.1em;
+    white-space: nowrap;
   }
 </style>

@@ -51,9 +51,9 @@ type Route = \`/api/\${string}\`;
 
 ## 总结
 
-- satisfies > as
-- 模板字面量 > 手写字符串
-- Record > any
+- \`satisfies\` 优于 \`as\`
+- 模板字面量优于手写字符串
+- \`Record\` 优于 \`any\`
 
 **关注我，获取更多编程技巧！**
 `
@@ -157,9 +157,9 @@ Catch invalid paths at compile time 🎯
 
 ## Summary
 
-- satisfies > as
-- Template literals > manual strings
-- Record > any
+- \`satisfies\` over \`as\`
+- Template literals over manual strings
+- \`Record\` over \`any\`
 
 **Follow for more coding tips!**
 `

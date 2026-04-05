@@ -35,12 +35,15 @@
     (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
   )
 
-  let style = $state<'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist'>(
+  let style = $state<'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-gradient' | 'redbook-forest' | 'redbook-blueprint'>(
     (browser &&
       (localStorage.getItem('mdxport-redbook-style') as
         | 'redbook-knowledge'
         | 'redbook-dark'
-        | 'redbook-minimalist')) ||
+        | 'redbook-minimalist'
+        | 'redbook-gradient'
+        | 'redbook-forest'
+        | 'redbook-blueprint')) ||
       'redbook-knowledge',
   )
 
@@ -592,33 +595,44 @@
       style="width: {leftPaneWidth}%"
     >
       <div class="editor-toolbar">
-        <div class="editor-mode-toggle">
-          <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
-            {lang === 'zh' ? '编辑' : 'Edit'}
-          </button>
-          <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
-            {lang === 'zh' ? '源码' : 'Code'}
+        <div class="editor-toolbar-left">
+          <div class="editor-mode-toggle">
+            <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
+              {lang === 'zh' ? '编辑' : 'Edit'}
+            </button>
+            <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
+              {lang === 'zh' ? '源码' : 'Code'}
+            </button>
+          </div>
+          <div class="toolbar-divider"></div>
+          <button class="toolbar-icon-btn" onclick={insertPageBreak} title={lang === 'zh' ? '插入分页（新卡片）' : 'Insert page break (new card)'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="2" y1="12" x2="6" y2="12"></line>
+              <line x1="18" y1="12" x2="22" y2="12"></line>
+              <path d="M6 8V4h12v4"></path>
+              <path d="M6 16v4h12v-4"></path>
+            </svg>
+            {lang === 'zh' ? '分页' : 'Break'}
           </button>
         </div>
-        <select
-          class="toolbar-select"
-          onchange={(e) => {
-            const target = e.target as HTMLSelectElement
-            const idx = parseInt(target.value, 10)
-            if (!isNaN(idx)) {
-              applyTemplate(REDBOOK_TEMPLATES[lang][idx].content)
-            }
-            target.value = ''
-          }}
-        >
-          <option value="" disabled selected>{lang === 'zh' ? '模板' : 'Templates'}</option>
-          {#each REDBOOK_TEMPLATES[lang] as tmpl, idx}
-            <option value={idx}>{tmpl.icon} {tmpl.name}</option>
-          {/each}
-        </select>
-        <button class="toolbar-btn" onclick={insertPageBreak} title={lang === 'zh' ? '插入分页（新卡片）' : 'Insert page break (new card)'}>
-          {lang === 'zh' ? '+ 分页' : '+ Break'}
-        </button>
+        <div class="editor-toolbar-right">
+          <select
+            class="toolbar-select"
+            onchange={(e) => {
+              const target = e.target as HTMLSelectElement
+              const idx = parseInt(target.value, 10)
+              if (!isNaN(idx)) {
+                applyTemplate(REDBOOK_TEMPLATES[lang][idx].content)
+              }
+              target.value = ''
+            }}
+          >
+            <option value="" disabled selected>{lang === 'zh' ? '模板' : 'Templates'}</option>
+            {#each REDBOOK_TEMPLATES[lang] as tmpl, idx}
+              <option value={idx}>{tmpl.icon} {tmpl.name}</option>
+            {/each}
+          </select>
+        </div>
       </div>
       {#if editorMode === 'wysiwyg'}
         <WysiwygEditor bind:markdown placeholder={t('placeholder')} cardMode />
@@ -628,6 +642,14 @@
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
       {/if}
+      <div class="drop-hint">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        {lang === 'zh' ? '拖入 .md / .txt 文件导入' : 'Drop .md / .txt files to import'}
+      </div>
     </section>
 
     <!-- Resizer -->
@@ -669,9 +691,12 @@
       <div class="preview-toolbar">
         <div class="preview-toolbar-left">
           <select class="style-select" bind:value={style}>
-            <option value="redbook-knowledge">{lang === 'zh' ? '知识卡片' : 'Knowledge'}</option>
-            <option value="redbook-dark">{lang === 'zh' ? '深色卡片' : 'Dark'}</option>
-            <option value="redbook-minimalist">{lang === 'zh' ? '极简卡片' : 'Minimal'}</option>
+            <option value="redbook-knowledge">{lang === 'zh' ? '经典暖白' : 'Warm'}</option>
+            <option value="redbook-gradient">{lang === 'zh' ? '粉彩渐变' : 'Gradient'}</option>
+            <option value="redbook-forest">{lang === 'zh' ? '清新森林' : 'Forest'}</option>
+            <option value="redbook-blueprint">{lang === 'zh' ? '科技蓝图' : 'Blueprint'}</option>
+            <option value="redbook-dark">{lang === 'zh' ? '深邃暗夜' : 'Dark'}</option>
+            <option value="redbook-minimalist">{lang === 'zh' ? '极简黑白' : 'Minimal'}</option>
           </select>
           <select class="font-select" bind:value={font}>
             <option value="sans">{lang === 'zh' ? '无衬线' : 'Sans'}</option>
@@ -951,6 +976,25 @@
     gap: 6px;
   }
 
+  .editor-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .editor-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--color-gray-200, #e5e7eb);
+    flex-shrink: 0;
+  }
+
   .editor-mode-toggle {
     display: flex;
     background: var(--color-gray-200, #e5e7eb);
@@ -977,21 +1021,26 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
-  .toolbar-btn {
+  .toolbar-icon-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: 0.75rem;
     font-weight: 500;
-    padding: 3px 10px;
-    background: var(--color-white, #fff);
-    border: 1px solid var(--color-gray-200, #e5e7eb);
+    padding: 3px 8px;
+    border: none;
     border-radius: var(--radius-sm, 4px);
     cursor: pointer;
-    color: var(--color-gray-600, #4b5563);
+    color: var(--color-gray-500, #6b7280);
+    background: transparent;
+    transition: all 0.15s;
   }
 
-  .toolbar-btn:hover {
-    background: var(--color-gray-100, #f3f4f6);
-    border-color: var(--color-gray-300, #d1d5db);
+  .toolbar-icon-btn:hover {
+    background: var(--color-gray-200, #e5e7eb);
+    color: var(--color-gray-700, #374151);
   }
+
 
   .toolbar-select {
     appearance: none;
@@ -1021,6 +1070,19 @@
     color: #ef4444;
     background: rgba(239, 68, 68, 0.1);
     border-top: 1px solid rgba(239, 68, 68, 0.2);
+  }
+
+  .drop-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px;
+    font-size: 0.6875rem;
+    color: var(--color-gray-400, #9ca3af);
+    border-top: 1px solid var(--color-gray-100, #f3f4f6);
+    background: var(--color-gray-50, #f9fafb);
+    flex-shrink: 0;
   }
 
   .preview-pane {

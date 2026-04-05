@@ -69,7 +69,7 @@ export type MarkdownToTypstOptions = {
 	font?: 'sans' | 'serif';
 };
 
-export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist';
+export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-gradient' | 'redbook-forest' | 'redbook-blueprint';
 
 // Module-scoped style for use in renderBlock without threading through all calls
 let currentStyle: TypstStyleId = 'modern-tech';
@@ -79,7 +79,10 @@ const STYLE_TO_TEMPLATE: Record<TypstStyleId, { path: string; entry: string }> =
 	'classic-editorial': { path: 'styles/classic-editorial.typ', entry: 'article' },
 	'redbook-knowledge': { path: 'styles/redbook-knowledge.typ', entry: 'article' },
 	'redbook-dark': { path: 'styles/redbook-dark.typ', entry: 'article' },
-	'redbook-minimalist': { path: 'styles/redbook-minimalist.typ', entry: 'article' }
+	'redbook-minimalist': { path: 'styles/redbook-minimalist.typ', entry: 'article' },
+	'redbook-gradient': { path: 'styles/redbook-gradient.typ', entry: 'article' },
+	'redbook-forest': { path: 'styles/redbook-forest.typ', entry: 'article' },
+	'redbook-blueprint': { path: 'styles/redbook-blueprint.typ', entry: 'article' }
 };
 
 export function markdownToTypst(markdown: string, options: MarkdownToTypstOptions = {}): string {

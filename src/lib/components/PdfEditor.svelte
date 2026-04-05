@@ -37,16 +37,7 @@
   // ========================================
   // State
   // ========================================
-  let markdown = $state('')
-  let hasInitialized = false
-
-  $effect(() => {
-    if (!hasInitialized) {
-      const defaultTemplate = PDF_TEMPLATES[lang]?.[0]?.content || ''
-      markdown = initialMarkdown || defaultTemplate
-      hasInitialized = true
-    }
-  })
+  let markdown = $state(initialMarkdown || PDF_TEMPLATES[lang]?.[0]?.content || '')
 
   // PWA Service Worker
   const { needRefresh, updateServiceWorker } = useRegisterSW({
@@ -86,22 +77,7 @@
     { id: 'classic-editorial' as const, label: { zh: '经典风', en: 'Classic' } },
   ]
 
-  // Template dropdown state
-  let isTemplateMenuOpen = $state(false)
-
   let templates = $derived(PDF_TEMPLATES[lang] || [])
-
-  function toggleTemplateMenu(e?: Event) {
-    if (e) {
-      e.stopPropagation()
-      e.preventDefault()
-    }
-    isTemplateMenuOpen = !isTemplateMenuOpen
-  }
-
-  function closeTemplateMenu() {
-    isTemplateMenuOpen = false
-  }
 
   function loadTemplate(t: Template) {
     if (markdown.trim() !== '') {
@@ -109,13 +85,9 @@
         lang === 'zh'
           ? '这将覆盖当前内容，确定吗？'
           : 'This will overwrite current content. Continue?'
-      if (!confirm(msg)) {
-        closeTemplateMenu()
-        return
-      }
+      if (!confirm(msg)) return
     }
     markdown = t.content
-    closeTemplateMenu()
   }
 
   // Mobile state
@@ -275,7 +247,6 @@
     // Close menus on click outside
     const handleClickOutside = () => {
       closeMenu()
-      closeTemplateMenu()
     }
     window.addEventListener('click', handleClickOutside)
 
@@ -903,21 +874,22 @@
             {lang === 'zh' ? '源码' : 'Code'}
           </button>
         </div>
-        <div class="template-dropdown" onclick={(e) => e.stopPropagation()}>
-          <button class="toolbar-btn" onclick={toggleTemplateMenu}>
-            {lang === 'zh' ? '模板' : 'Templates'}
-          </button>
-          {#if isTemplateMenuOpen}
-            <div class="template-menu">
-              {#each templates as tmpl}
-                <button class="template-menu-item" onclick={() => loadTemplate(tmpl)}>
-                  <span class="template-icon">{tmpl.icon}</span>
-                  {tmpl.name}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
+        <select
+          class="toolbar-select"
+          onchange={(e) => {
+            const target = e.target as HTMLSelectElement
+            const idx = parseInt(target.value, 10)
+            if (!isNaN(idx)) {
+              loadTemplate(templates[idx])
+            }
+            target.value = ''
+          }}
+        >
+          <option value="" disabled selected>{lang === 'zh' ? '模板' : 'Templates'}</option>
+          {#each templates as tmpl, idx}
+            <option value={idx}>{tmpl.icon} {tmpl.name}</option>
+          {/each}
+        </select>
       </div>
       {#if editorMode === 'wysiwyg'}
         <WysiwygEditor bind:markdown placeholder={t('placeholder')} />
@@ -927,6 +899,14 @@
       {#if errorMessage}
         <div class="error-bar">{errorMessage}</div>
       {/if}
+      <div class="drop-hint">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        {lang === 'zh' ? '拖入 .md / .txt 文件导入' : 'Drop .md / .txt files to import'}
+      </div>
     </section>
 
     <!-- Resizer -->
@@ -1146,52 +1126,26 @@
     background: var(--color-gray-100, #f3f4f6);
   }
 
-  /* ========================================
-     Template Dropdown
-     ======================================== */
-  .template-dropdown {
-    position: relative;
-    display: inline-block;
-  }
-
-  .template-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    min-width: 180px;
-    background: var(--color-white);
-    border: 1px solid var(--color-gray-200);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-md);
-    z-index: 1000;
-    padding: var(--space-xs) 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .template-menu-item {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: var(--space-xs) var(--space-sm);
+  .toolbar-select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 3px 24px 3px 8px;
     font-size: 0.8125rem;
-    color: var(--color-gray-700);
-    background: transparent;
-    border: none;
-    text-align: left;
+    font-weight: 500;
+    background-color: var(--color-white, #fff);
+    background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 9L12 15L18 9' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    background-size: 12px;
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
     cursor: pointer;
-    transition: background-color var(--transition-fast);
+    color: var(--color-gray-600, #4b5563);
   }
 
-  .template-menu-item:hover {
-    background-color: var(--color-gray-50);
-    color: var(--color-gray-900);
-  }
-
-  .template-icon {
-    margin-right: var(--space-sm);
-    font-size: 1rem;
-    line-height: 1;
+  .toolbar-select:hover {
+    background-color: var(--color-gray-100, #f3f4f6);
+    border-color: var(--color-gray-300, #d1d5db);
   }
 
   /* ========================================
@@ -1287,21 +1241,6 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
-  .toolbar-btn {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    padding: 3px 10px;
-    background: var(--color-white, #fff);
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-    border-radius: var(--radius-sm, 4px);
-    cursor: pointer;
-    color: var(--color-gray-600, #4b5563);
-  }
-
-  .toolbar-btn:hover {
-    background: var(--color-gray-100, #f3f4f6);
-    border-color: var(--color-gray-300, #d1d5db);
-  }
 
   .error-bar {
     padding: var(--space-sm) var(--space-md);
@@ -1309,6 +1248,19 @@
     color: #ef4444;
     background: rgba(239, 68, 68, 0.1);
     border-top: 1px solid rgba(239, 68, 68, 0.2);
+  }
+
+  .drop-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px;
+    font-size: 0.6875rem;
+    color: var(--color-gray-400, #9ca3af);
+    border-top: 1px solid var(--color-gray-100, #f3f4f6);
+    background: var(--color-gray-50, #f9fafb);
+    flex-shrink: 0;
   }
 
   /* Resizer */
