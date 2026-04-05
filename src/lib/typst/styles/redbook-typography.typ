@@ -18,7 +18,7 @@
   let paragraph-spacing = if density == "tight" { 0.9em } else if density == "relaxed" { 1.2em } else { 1.0em }
   let heading-above = if density == "tight" { 1.6em } else if density == "relaxed" { 2.0em } else { 1.8em }
   let heading-below = if density == "tight" { 1.0em } else if density == "relaxed" { 1.4em } else { 1.2em }
-  let list-spacing = if density == "tight" { 0.4em } else if density == "relaxed" { 0.56em } else { 0.48em }
+  let list-spacing = if density == "tight" { 0.5em } else if density == "relaxed" { 0.8em } else { 0.65em }
 
   (
     "body-size": body-size,

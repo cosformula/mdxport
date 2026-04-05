@@ -74,9 +74,10 @@ export type MarkdownToTypstOptions = {
 	font?: 'sans' | 'serif';
 	size?: 'compact' | 'regular' | 'large';
 	density?: 'tight' | 'comfortable' | 'relaxed';
+	theme?: string;
 };
 
-export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-gradient' | 'redbook-forest' | 'redbook-blueprint';
+export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-modern' | 'redbook-forest' | 'redbook-blueprint' | 'redbook-clean';
 
 // Module-scoped style for use in renderBlock without threading through all calls
 let currentStyle: TypstStyleId = 'modern-tech';
@@ -90,9 +91,10 @@ const STYLE_TO_TEMPLATE: Record<TypstStyleId, { path: string; entry: string }> =
 	'redbook-knowledge': { path: 'styles/redbook-knowledge.typ', entry: 'article' },
 	'redbook-dark': { path: 'styles/redbook-dark.typ', entry: 'article' },
 	'redbook-minimalist': { path: 'styles/redbook-minimalist.typ', entry: 'article' },
-	'redbook-gradient': { path: 'styles/redbook-gradient.typ', entry: 'article' },
+	'redbook-modern': { path: 'styles/redbook-modern.typ', entry: 'article' },
 	'redbook-forest': { path: 'styles/redbook-forest.typ', entry: 'article' },
-	'redbook-blueprint': { path: 'styles/redbook-blueprint.typ', entry: 'article' }
+	'redbook-blueprint': { path: 'styles/redbook-blueprint.typ', entry: 'article' },
+	'redbook-clean': { path: 'styles/redbook-clean.typ', entry: 'article' }
 };
 
 export function markdownToTypst(markdown: string, options: MarkdownToTypstOptions = {}): string {
@@ -150,7 +152,8 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 		options.size && options.size !== 'compact' ? `size: "${options.size}"` : null,
 		options.density && options.density !== 'comfortable'
 			? `density: "${options.density}"`
-			: null
+			: null,
+		options.theme ? `theme: "${options.theme}"` : null
 	]
 		.filter(isNonEmpty)
 		.join(', ');

@@ -47,16 +47,21 @@
     (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
   )
 
-  let style = $state<'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-gradient' | 'redbook-forest' | 'redbook-blueprint'>(
+  let style = $state<'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-modern' | 'redbook-forest' | 'redbook-blueprint' | 'redbook-clean'>(
     (browser &&
       (localStorage.getItem('mdxport-redbook-style') as
         | 'redbook-knowledge'
         | 'redbook-dark'
         | 'redbook-minimalist'
-        | 'redbook-gradient'
+        | 'redbook-modern'
         | 'redbook-forest'
-        | 'redbook-blueprint')) ||
-      'redbook-minimalist',
+        | 'redbook-blueprint'
+        | 'redbook-clean')) ||
+      'redbook-clean',
+  )
+
+  let cardTheme = $state(
+    (browser && localStorage.getItem('mdxport-card-theme')) || 'indigo',
   )
 
   let font = $state<'sans' | 'serif'>(
@@ -169,7 +174,7 @@
       isLoading = false
 
       // Trigger first compile
-      void compile(markdown, style, lang, font, cardSize, cardDensity)
+      void compile(markdown, style, lang, font, cardSize, cardDensity, cardTheme)
     })().catch((error) => {
       console.error(error)
       isLoading = false
@@ -196,6 +201,7 @@
   $effect(() => {
     if (!browser) return
     localStorage.setItem('mdxport-redbook-style', style)
+    localStorage.setItem('mdxport-card-theme', cardTheme)
     localStorage.setItem('mdxport-card-font', font)
     localStorage.setItem('mdxport-card-size', cardSize)
     localStorage.setItem('mdxport-card-density', cardDensity)
@@ -245,12 +251,13 @@
     const _font = font
     const _cardSize = cardSize
     const _cardDensity = cardDensity
+    const _cardTheme = cardTheme
 
     if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
 
     const delay = hasEverCompiled ? 450 : 0
     autoPreviewTimer = window.setTimeout(() => {
-      void compile(md, _style, _lang, _font, _cardSize, _cardDensity)
+      void compile(md, _style, _lang, _font, _cardSize, _cardDensity, _cardTheme)
     }, delay)
 
     return () => {
@@ -268,6 +275,7 @@
     compileFont: 'sans' | 'serif' = 'sans',
     compileSize: 'compact' | 'regular' | 'large' = 'compact',
     compileDensity: 'tight' | 'comfortable' | 'relaxed' = 'comfortable',
+    compileTheme: string = 'indigo',
   ) {
     if (!client) return
     hasEverCompiled = true
@@ -321,6 +329,7 @@
         font: compileFont,
         size: compileSize,
         density: compileDensity,
+        theme: compileTheme,
       })
       // @ts-ignore
       const pdfData = await client.compilePdf(mainTypst, images)
@@ -906,13 +915,24 @@
       <div class="preview-toolbar">
         <div class="preview-toolbar-left">
           <select class="style-select" bind:value={style}>
+            <option value="redbook-clean">{lang === 'zh' ? '现代素雅' : 'Clean'}</option>
+            <option value="redbook-modern">{lang === 'zh' ? '彩色现代' : 'Modern'}</option>
+            <option value="redbook-minimalist">{lang === 'zh' ? '极简黑白' : 'Minimal'}</option>
             <option value="redbook-knowledge">{lang === 'zh' ? '经典暖白' : 'Warm'}</option>
-            <option value="redbook-gradient">{lang === 'zh' ? '粉彩渐变' : 'Gradient'}</option>
             <option value="redbook-forest">{lang === 'zh' ? '清新森林' : 'Forest'}</option>
             <option value="redbook-blueprint">{lang === 'zh' ? '科技蓝图' : 'Blueprint'}</option>
             <option value="redbook-dark">{lang === 'zh' ? '深邃暗夜' : 'Dark'}</option>
-            <option value="redbook-minimalist">{lang === 'zh' ? '极简黑白' : 'Minimal'}</option>
           </select>
+          {#if style === 'redbook-modern'}
+            <select class="font-select" bind:value={cardTheme}>
+              <option value="indigo">{lang === 'zh' ? '靛蓝' : 'Indigo'}</option>
+              <option value="amber">{lang === 'zh' ? '琥珀' : 'Amber'}</option>
+              <option value="teal">{lang === 'zh' ? '青碧' : 'Teal'}</option>
+              <option value="violet">{lang === 'zh' ? '紫罗兰' : 'Violet'}</option>
+              <option value="rose">{lang === 'zh' ? '玫红' : 'Rose'}</option>
+              <option value="pink">{lang === 'zh' ? '粉彩' : 'Pink'}</option>
+            </select>
+          {/if}
           <select class="font-select" bind:value={font}>
             <option value="sans">{lang === 'zh' ? '无衬线' : 'Sans'}</option>
             <option value="serif">{lang === 'zh' ? '衬线' : 'Serif'}</option>

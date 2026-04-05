@@ -7,9 +7,10 @@ import classicEditorialTyp from '../typst/styles/classic-editorial.typ?raw';
 import redbookKnowledgeTyp from '../typst/styles/redbook-knowledge.typ?raw';
 import redbookDarkTyp from '../typst/styles/redbook-dark.typ?raw';
 import redbookMinimalistTyp from '../typst/styles/redbook-minimalist.typ?raw';
-import redbookGradientTyp from '../typst/styles/redbook-gradient.typ?raw';
 import redbookForestTyp from '../typst/styles/redbook-forest.typ?raw';
 import redbookBlueprintTyp from '../typst/styles/redbook-blueprint.typ?raw';
+import redbookCleanTyp from '../typst/styles/redbook-clean.typ?raw';
+import redbookModernTyp from '../typst/styles/redbook-modern.typ?raw';
 import redbookTypographyTyp from '../typst/styles/redbook-typography.typ?raw';
 
 type CompileRequest = {
@@ -97,11 +98,12 @@ async function upgradeCompiler(needCjk: boolean, needEmoji: boolean) {
 	newCompiler.addSource('/styles/redbook-knowledge.typ', redbookKnowledgeTyp);
 	newCompiler.addSource('/styles/redbook-dark.typ', redbookDarkTyp);
 	newCompiler.addSource('/styles/redbook-minimalist.typ', redbookMinimalistTyp);
-	newCompiler.addSource('/styles/redbook-gradient.typ', redbookGradientTyp);
+	newCompiler.addSource('/styles/redbook-modern.typ', redbookModernTyp);
 	newCompiler.addSource('/styles/redbook-forest.typ', redbookForestTyp);
 	newCompiler.addSource('/styles/redbook-blueprint.typ', redbookBlueprintTyp);
+	newCompiler.addSource('/styles/redbook-clean.typ', redbookCleanTyp);
 	newCompiler.addSource('/styles/redbook-typography.typ', redbookTypographyTyp);
-	
+
 	// Swap the compiler promise
 	compilerPromise = Promise.resolve(newCompiler);
 	console.log('MDXport - Compiler upgraded successfully.');
@@ -125,9 +127,10 @@ function getCompiler(): Promise<TypstCompiler> {
 		compiler.addSource('/styles/redbook-knowledge.typ', redbookKnowledgeTyp);
 		compiler.addSource('/styles/redbook-dark.typ', redbookDarkTyp);
 		compiler.addSource('/styles/redbook-minimalist.typ', redbookMinimalistTyp);
-		compiler.addSource('/styles/redbook-gradient.typ', redbookGradientTyp);
+		compiler.addSource('/styles/redbook-modern.typ', redbookModernTyp);
 		compiler.addSource('/styles/redbook-forest.typ', redbookForestTyp);
 		compiler.addSource('/styles/redbook-blueprint.typ', redbookBlueprintTyp);
+		compiler.addSource('/styles/redbook-clean.typ', redbookCleanTyp);
 		compiler.addSource('/styles/redbook-typography.typ', redbookTypographyTyp);
 		return compiler;
 	})();
