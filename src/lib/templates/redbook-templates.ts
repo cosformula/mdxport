@@ -4,6 +4,78 @@ import type { Template } from './pdf-templates';
 export const REDBOOK_TEMPLATES: Record<UILang, Template[]> = {
 	zh: [
 		{
+			id: 'quick-start',
+			name: '快速上手',
+			icon: '📖',
+			content: `# 卡片模式快速上手
+
+用 Markdown 制作精美社交媒体卡片
+
+[[pagebreak]]
+
+## 如何分页
+
+用 \`[[pagebreak]]\` 将内容分成多张卡片。
+
+每张卡片的内容不宜过多，留白才好看。
+
+[[pagebreak]]
+
+## 支持的格式
+
+**加粗**、*斜体*、~~删除线~~、\`行内代码\`
+
+- 无序列表
+- 支持嵌套
+  - 像这样
+
+1. 有序列表
+2. 也支持
+
+> 引用块非常适合用来突出重点
+
+[[pagebreak]]
+
+## 代码与公式
+
+代码块支持语法高亮：
+
+\`\`\`python
+print("Hello, MDXport!")
+\`\`\`
+
+数学公式使用 LaTeX 语法：
+
+行内公式 $E = mc^2$，或独立公式：
+
+$$
+\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}
+$$
+
+[[pagebreak]]
+
+## 表格
+
+| 功能 | 支持 |
+|------|------|
+| Markdown 基础语法 | ✓ |
+| GFM 扩展语法 | ✓ |
+| LaTeX 数学公式 | ✓ |
+| 代码语法高亮 | ✓ |
+
+[[pagebreak]]
+
+## 小贴士
+
+1. 第一张卡片通常是「封面」，建议只放标题
+2. 每张卡片内容控制在屏幕一屏以内
+3. 善用标题、列表和引用来组织内容
+4. 右侧面板可以切换不同的卡片样式
+
+**现在就删掉这些内容，开始创作吧！**
+`
+		},
+		{
 			id: 'knowledge',
 			name: '知识分享',
 			icon: '💡',
@@ -51,52 +123,81 @@ type Route = \`/api/\${string}\`;
 
 **关注我，获取更多编程技巧！**
 `
-		},
-		{
-			id: 'tutorial',
-			name: '教程卡片',
-			icon: '📖',
-			content: `# 从零搭建个人博客
-
-手把手教你用最新技术栈
-
-[[pagebreak]]
-
-## 你需要准备
-
-- Node.js 18+
-- 一个 GitHub 账号
-- 15 分钟的时间 ⏰
-
-[[pagebreak]]
-
-## 第一步：创建项目
-
-\`\`\`bash
-npm create astro@latest my-blog
-\`\`\`
-
-选择 Blog 模板，等待安装完成
-
-[[pagebreak]]
-
-## 第二步：写你的第一篇文章
-
-在 \`src/content/blog/\` 下创建 \`.md\` 文件
-
-支持 Markdown 所有语法！
-
-[[pagebreak]]
-
-## 第三步：部署
-
-推送到 GitHub，连接 Vercel
-
-**三步完成，就这么简单！**
-`
 		}
 	],
 	en: [
+		{
+			id: 'quick-start',
+			name: 'Quick Start',
+			icon: '📖',
+			content: `# Card Mode Quick Start
+
+Create beautiful social media cards with Markdown
+
+[[pagebreak]]
+
+## How to Paginate
+
+Use \`[[pagebreak]]\` to split content into separate cards.
+
+Keep each card concise. White space is your friend.
+
+[[pagebreak]]
+
+## Supported Formatting
+
+**Bold**, *italic*, ~~strikethrough~~, \`inline code\`
+
+- Unordered lists
+- With nesting support
+  - Like this
+
+1. Ordered lists
+2. Work too
+
+> Blockquotes are great for highlighting key points
+
+[[pagebreak]]
+
+## Code & Math
+
+Code blocks with syntax highlighting:
+
+\`\`\`python
+print("Hello, MDXport!")
+\`\`\`
+
+Math uses LaTeX syntax:
+
+Inline $E = mc^2$, or display math:
+
+$$
+\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}
+$$
+
+[[pagebreak]]
+
+## Tables
+
+| Feature | Supported |
+|---------|-----------|
+| Basic Markdown | ✓ |
+| GFM Extensions | ✓ |
+| LaTeX Math | ✓ |
+| Syntax Highlighting | ✓ |
+
+[[pagebreak]]
+
+## Tips
+
+1. The first card is your "cover" — keep it title-only
+2. Keep each card to one screen of content
+3. Use headings, lists, and quotes to structure content
+4. Switch card styles in the right panel
+
+**Delete this and start creating!**
+`
+		},
 		{
 			id: 'knowledge',
 			name: 'Knowledge Share',
@@ -144,49 +245,6 @@ Catch invalid paths at compile time 🎯
 - \`Record\` over \`any\`
 
 **Follow for more coding tips!**
-`
-		},
-		{
-			id: 'tutorial',
-			name: 'Tutorial Card',
-			icon: '📖',
-			content: `# Build a Personal Blog from Scratch
-
-Step-by-step with the latest tech stack
-
-[[pagebreak]]
-
-## What You Need
-
-- Node.js 18+
-- A GitHub account
-- 15 minutes ⏰
-
-[[pagebreak]]
-
-## Step 1: Create the Project
-
-\`\`\`bash
-npm create astro@latest my-blog
-\`\`\`
-
-Pick the Blog template and wait for install
-
-[[pagebreak]]
-
-## Step 2: Write Your First Post
-
-Create a \`.md\` file under \`src/content/blog/\`
-
-Full Markdown syntax supported!
-
-[[pagebreak]]
-
-## Step 3: Deploy
-
-Push to GitHub, connect Vercel
-
-**Three steps, that's it!**
 `
 		}
 	]

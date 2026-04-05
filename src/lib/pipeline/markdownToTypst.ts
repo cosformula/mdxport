@@ -174,34 +174,34 @@ function renderSegmentedBody(
 	const segments = splitSegments(nodes);
 	return segments
 		.map((segment) => {
-			return segment
+			const rendered = segment.nodes
 				.map((node) => renderBlock(node as Content, 0, definitions, footnoteDefinitions))
 				.filter(isNonEmpty)
 				.join('\n\n');
+			if (rendered.trim() !== '') return rendered;
+			return segment.explicit ? '#v(1pt)' : '';
 		})
-		.filter((s) => s.trim() !== '')
+		.filter((segment) => segment !== '')
 		.join('\n\n#pagebreak()\n\n');
 }
 
-function splitSegments(nodes: RenderableNode[]): RenderableNode[][] {
-	const segments: RenderableNode[][] = [];
-	let current: RenderableNode[] = [];
+function splitSegments(nodes: RenderableNode[]): Array<{ nodes: RenderableNode[]; explicit: boolean }> {
+	const segments: Array<{ nodes: RenderableNode[]; explicit: boolean }> = [
+		{ nodes: [], explicit: false }
+	];
 
 	for (const node of nodes) {
 		if (isSegmentBreak(node)) {
-			if (current.length) segments.push(current);
-			current = [];
+			segments.push({ nodes: [], explicit: true });
 			continue;
 		}
-		current.push(node);
+		segments[segments.length - 1].nodes.push(node);
 	}
-
-	if (current.length) segments.push(current);
 	return segments;
 }
 
 function isSegmentBreak(node: RenderableNode): boolean {
-	return node.type === 'pageBreak' || node.type === 'thematicBreak';
+	return node.type === 'pageBreak';
 }
 
 function renderTypstArray(items: string[]): string {
@@ -395,9 +395,6 @@ function renderBlock(
 		case 'pageBreak':
 			return renderPageBreak(node as unknown as PageBreakNode, indentLevel);
 		case 'thematicBreak':
-			if ((currentStyle.startsWith('redbook') || currentStyle.startsWith('slides')) && indentLevel === 0) {
-				return indentLines('#pagebreak()', indentLevel);
-			}
 			return indentLines('#line(length: 100%, stroke: 0.6pt)', indentLevel);
 		case 'table':
 			return renderTable(node as Table, indentLevel, definitions, footnoteDefinitions);
