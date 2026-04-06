@@ -7,15 +7,14 @@
 
   const SEO = {
     zh: {
-      title: 'ChatGPT 表格转 PDF: 更专业的排版优化工具 - MDXport',
+      title: 'AI 对话导出 PDF: 保存 ChatGPT / Claude / DeepSeek 对话记录 - MDXport',
       description:
-        '尝试解决从 ChatGPT 复制表格到 Word 格式不一致的问题。MDXport 针对常用 Markdown 格式优化，辅助将对话表格转换为排版整洁的 PDF 文档。',
+        '将 AI 对话（ChatGPT、Claude、DeepSeek、Gemini 等）完整导出为排版精美的 PDF。保留代码高亮、表格格式、数学公式，100% 本地运行。',
     },
     en: {
-      title:
-        'Convert ChatGPT Table to PDF: Professional Layout Optimization - MDXport',
+      title: 'Export AI Chat to PDF: Save ChatGPT / Claude / DeepSeek Conversations - MDXport',
       description:
-        'Struggling with broken formatting when copying ChatGPT tables to Word? Use MDXport to convert ChatGPT conversations into beautifully formatted PDFs in one click.',
+        'Export AI conversations (ChatGPT, Claude, DeepSeek, Gemini) to beautifully formatted PDF. Preserves code highlighting, tables, and math formulas. Runs 100% locally.',
     },
   }
 

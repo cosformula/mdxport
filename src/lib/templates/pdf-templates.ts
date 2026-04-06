@@ -124,6 +124,242 @@ graph LR;
 > **Tip**: Paste Markdown into the editor, or use the templates above to get started.
 `;
 
+const RESUME_ZH = `---
+lang: zh
+title: 个人简历
+---
+
+# 张三
+
+📧 zhangsan@email.com · 📱 138-0000-0000 · 🔗 github.com/zhangsan
+
+---
+
+## 工作经历
+
+### 高级前端工程师 · ABC 科技有限公司
+*2021.03 - 至今*
+
+- 主导公司核心产品前端架构升级，将构建时间降低 60%
+- 设计并实现组件库，覆盖 50+ 组件，团队复用率达 90%
+- 推进 TypeScript 全量迁移，线上 Bug 率下降 35%
+
+### 前端工程师 · XYZ 互联网公司
+*2019.07 - 2021.02*
+
+- 负责电商平台 H5 页面开发，日均 PV 50 万+
+- 优化首屏加载速度，LCP 从 3.2s 降至 1.1s
+
+## 教育背景
+
+### 计算机科学与技术 · 某某大学
+*2015.09 - 2019.06 · 本科*
+
+## 技能
+
+| 类别 | 技能 |
+| :--- | :--- |
+| 语言 | TypeScript, JavaScript, HTML, CSS |
+| 框架 | React, Vue, Svelte, Next.js |
+| 工具 | Git, Docker, Webpack, Vite |
+`;
+
+const RESUME_EN = `---
+lang: en
+title: Resume
+---
+
+# Jane Smith
+
+📧 jane@email.com · 📱 (555) 123-4567 · 🔗 github.com/janesmith
+
+---
+
+## Experience
+
+### Senior Frontend Engineer · ABC Tech Inc.
+*Mar 2021 - Present*
+
+- Led frontend architecture migration, reducing build times by 60%
+- Designed component library with 50+ components, 90% team adoption
+- Drove full TypeScript migration, reducing production bugs by 35%
+
+### Frontend Developer · XYZ Internet Co.
+*Jul 2019 - Feb 2021*
+
+- Built e-commerce H5 pages serving 500K+ daily page views
+- Optimized first contentful paint from 3.2s to 1.1s
+
+## Education
+
+### B.S. Computer Science · State University
+*Sep 2015 - Jun 2019*
+
+## Skills
+
+| Category | Skills |
+| :--- | :--- |
+| Languages | TypeScript, JavaScript, HTML, CSS |
+| Frameworks | React, Vue, Svelte, Next.js |
+| Tools | Git, Docker, Webpack, Vite |
+`;
+
+const AI_CHAT_ZH = `---
+lang: zh
+title: AI 对话整理
+date: ${date}
+---
+
+# AI 对话记录
+
+## Q: 用 Python 实现快速排序
+
+\`\`\`python
+def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + middle + quicksort(right)
+\`\`\`
+
+> 时间复杂度：平均 $O(n \\log n)$，最坏 $O(n^2)$
+
+## Q: 快速排序与归并排序的区别？
+
+| 特性 | 快速排序 | 归并排序 |
+| :--- | :--- | :--- |
+| 平均时间复杂度 | $O(n \\log n)$ | $O(n \\log n)$ |
+| 最坏时间复杂度 | $O(n^2)$ | $O(n \\log n)$ |
+| 空间复杂度 | $O(\\log n)$ | $O(n)$ |
+| 稳定性 | 不稳定 | 稳定 |
+
+---
+
+*将你的 AI 对话粘贴到这里，替换以上示例内容。*
+`;
+
+const AI_CHAT_EN = `---
+lang: en
+title: AI Chat Notes
+date: ${date}
+---
+
+# AI Conversation Log
+
+## Q: Implement quicksort in Python
+
+\`\`\`python
+def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + middle + quicksort(right)
+\`\`\`
+
+> Time complexity: Average $O(n \\log n)$, Worst $O(n^2)$
+
+## Q: Quicksort vs Merge Sort?
+
+| Feature | Quicksort | Merge Sort |
+| :--- | :--- | :--- |
+| Avg Time | $O(n \\log n)$ | $O(n \\log n)$ |
+| Worst Time | $O(n^2)$ | $O(n \\log n)$ |
+| Space | $O(\\log n)$ | $O(n)$ |
+| Stable | No | Yes |
+
+---
+
+*Paste your AI conversation here, replacing the sample content above.*
+`;
+
+const NOTION_ZH = `---
+lang: zh
+title: Notion 笔记整理
+date: ${date}
+---
+
+# Notion 导出笔记整理
+
+> 💡 **使用方法**：在 Notion 中导出为 Markdown，然后将 .md 文件内容粘贴到这里。
+
+## 项目概览
+
+| 任务 ID | 描述 | 负责人 | 优先级 | 截止日期 | 状态 | 备注 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| TASK-001 | 首页重构 | 张三 | P0 | 2024-10-01 | 进行中 | 需要设计稿确认后开始开发 |
+| TASK-002 | API 接口优化 | 李四 | P1 | 2024-10-15 | 待开始 | 依赖后端微服务升级完成 |
+| TASK-003 | 用户反馈系统 | 王五 | P2 | 2024-11-01 | 已完成 | 已上线，监控中 |
+
+## 会议纪要
+
+### 2024-09-25 周会
+
+**参会人**：张三、李四、王五
+
+**讨论要点**：
+1. 首页重构进度 — 设计稿已确认，预计下周开始开发
+2. API 性能问题 — P99 延迟超标，需要排查慢查询
+3. Q4 规划 — 重点放在用户体验优化
+
+**Action Items**：
+- [ ] 张三：完成首页技术方案
+- [ ] 李四：输出 API 性能优化报告
+- [ ] 王五：整理用户反馈 Top 10
+
+> 📝 **下次会议**：2024-10-02
+
+---
+
+*将你的 Notion 导出内容粘贴到这里，替换以上示例。*
+`;
+
+const NOTION_EN = `---
+lang: en
+title: Notion Notes
+date: ${date}
+---
+
+# Notion Export Cleanup
+
+> 💡 **How to use**: Export from Notion as Markdown, then paste the .md file content here.
+
+## Project Overview
+
+| Task ID | Description | Owner | Priority | Due Date | Status | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| TASK-001 | Homepage Redesign | Alice | P0 | 2024-10-01 | In Progress | Waiting for design sign-off |
+| TASK-002 | API Optimization | Bob | P1 | 2024-10-15 | Not Started | Depends on backend migration |
+| TASK-003 | Feedback System | Charlie | P2 | 2024-11-01 | Done | Live, monitoring |
+
+## Meeting Notes
+
+### 2024-09-25 Weekly Sync
+
+**Attendees**: Alice, Bob, Charlie
+
+**Discussion**:
+1. Homepage redesign — designs approved, dev starts next week
+2. API latency — P99 over budget, need slow query investigation
+3. Q4 planning — focus on UX improvements
+
+**Action Items**:
+- [ ] Alice: Finalize homepage tech spec
+- [ ] Bob: Deliver API performance report
+- [ ] Charlie: Compile Top 10 user feedback items
+
+> 📝 **Next meeting**: 2024-10-02
+
+---
+
+*Paste your Notion export content here, replacing the sample above.*
+`;
+
 export const PDF_TEMPLATES: Record<UILang, Template[]> = {
 	zh: [
 		{ id: 'welcome', name: '快速入门', icon: '🚀', content: WELCOME_ZH },
@@ -138,7 +374,10 @@ export const PDF_TEMPLATES: Record<UILang, Template[]> = {
 			name: '工作周报',
 			icon: '📊',
 			content: `# 工作周报 - ${date}\n\n## 本周完成\n\n- [ ] 任务 1\n- [ ] 任务 2\n\n## 下周计划\n\n- [ ] 计划 1\n- [ ] 计划 2\n\n## 问题与风险\n\n## 备注\n`
-		}
+		},
+		{ id: 'resume', name: '简历', icon: '👤', content: RESUME_ZH },
+		{ id: 'aiChat', name: 'AI 对话整理', icon: '🤖', content: AI_CHAT_ZH },
+		{ id: 'notion', name: 'Notion 笔记整理', icon: '📋', content: NOTION_ZH }
 	],
 	en: [
 		{ id: 'welcome', name: 'Get Started', icon: '🚀', content: WELCOME_EN },
@@ -153,6 +392,9 @@ export const PDF_TEMPLATES: Record<UILang, Template[]> = {
 			name: 'Weekly Report',
 			icon: '📊',
 			content: `# Weekly Report - ${date}\n\n## Accomplishments\n\n## Plans for Next Week\n\n## Blockers\n`
-		}
+		},
+		{ id: 'resume', name: 'Resume', icon: '👤', content: RESUME_EN },
+		{ id: 'aiChat', name: 'AI Chat Notes', icon: '🤖', content: AI_CHAT_EN },
+		{ id: 'notion', name: 'Notion Notes', icon: '📋', content: NOTION_EN }
 	]
 };

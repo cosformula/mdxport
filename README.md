@@ -4,22 +4,44 @@
 
 # MDXport
 
-**Markdown to PDF, Perfect Typesetting.**
+**Markdown to PDF, Cards & Slides — Perfect Typesetting.**
 
-MDXport is a powerful Markdown export tool built with [Svelte](https://svelte.dev/) and [Typst](https://typst.app/). It allows you to convert Markdown into high-quality, business-ready PDFs directly in your browser.
+MDXport is a powerful Markdown export tool built with [Svelte](https://svelte.dev/) and [Typst](https://typst.app/). Convert Markdown into professional PDFs, Xiaohongshu (小红书) image cards, and presentation slides — all directly in your browser with zero setup.
 
 ## ✨ Features
 
-- **Typst-Powered**: Leverages the power of Typst for professional-grade typesetting.
-- **Privacy-First**: Runs entirely client-side using WebAssembly. Your data never leaves your browser.
-- **Real-time Preview**: Live side-by-side preview of your Markdown and the rendered PDF.
-- **Smart Formatting**: Automatically fixes common AI-generated Markdown issues like table overflows and hierarchy errors.
-- **Rich Syntax Support**:
-  - 📊 **Mermaid** diagrams
-  - 📐 **Math** formulas (LaTeX syntax)
-  - 💻 **Syntax Highlighting** for code blocks
-  - 📑 **Auto-generated Table of Contents**
-- **No Setup**: No installation or account required. Just open and use.
+### Three Export Modes
+
+- **PDF Documents** — Professional-grade PDF export with multiple styles (modern-tech, classic-editorial) and built-in templates for technical specs, weekly reports, and more.
+- **Xiaohongshu Cards** — Export beautiful social media cards as PNG images. 7 card styles (clean, knowledge, dark, minimalist, modern, forest, blueprint) with customizable theme colors, sizes, and content density.
+- **Presentation Slides** — Create slide decks from Markdown. 3 themes (modern, dark, minimal) with PDF export.
+
+### Editing
+
+- **Dual Editor Modes** — Switch between a code editor and a WYSIWYG rich-text editor (powered by [Milkdown](https://milkdown.dev/)).
+- **Real-time Preview** — Live side-by-side preview as you type.
+- **Page Breaks** — Use `[[pagebreak]]` to control pagination across all modes.
+- **Image Upload** — Embed images directly into your documents.
+
+### Rich Syntax
+
+- 📊 **Mermaid** diagrams
+- 📐 **Math** formulas (LaTeX syntax, auto-converted to Typst)
+- 💻 **Syntax Highlighting** for code blocks
+- 📑 **Auto-generated Table of Contents**
+
+### Built-in Templates
+
+Each mode comes with ready-to-use templates to help you get started quickly — from technical documentation to knowledge-sharing cards to tech talks.
+
+### More
+
+- **Document Management** — Create, save, and organize multiple documents. Auto-saves to IndexedDB so your work persists across sessions.
+- **Smart Formatting** — Automatically fixes common AI-generated Markdown issues like table overflows and heading hierarchy errors.
+- **Typst-Powered** — Leverages Typst for professional-grade typesetting.
+- **Privacy-First** — Runs entirely client-side using WebAssembly. Your data never leaves your browser.
+- **Bilingual** — Full English and Chinese interface.
+- **No Setup** — No installation or account required. Just open and use.
 
 ## 📸 Screenshots
 
@@ -40,8 +62,6 @@ MDXport is a powerful Markdown export tool built with [Svelte](https://svelte.de
 Visit [mdxport.com](https://mdxport.com) to start using it immediately.
 
 ### Local Development
-
-If you want to run MDXport locally:
 
 1. **Clone the repository**
    ```bash
@@ -68,6 +88,7 @@ If you want to run MDXport locally:
 
 - **Framework**: [Svelte 5](https://svelte.dev/)
 - **Typesetting**: [Typst](https://typst.app/) via WASM
+- **WYSIWYG Editor**: [Milkdown](https://milkdown.dev/) (Crepe)
 - **Markdown Handling**: [unified](https://unifiedjs.com/) ecosystem (remark)
 - **PDF Preview**: [PDF.js](https://mozilla.github.io/pdf.js/)
 - **Icons**: [Lucide](https://lucide.dev/) (via SVG)

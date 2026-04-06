@@ -60,6 +60,50 @@
         en: 'Convert Markdown to beautiful image cards with multiple styles',
       },
     },
+    {
+      path: 'slides',
+      title: {
+        zh: 'Markdown 转演示文稿',
+        en: 'Markdown to Slides',
+      },
+      description: {
+        zh: '用 Markdown 写幻灯片，多种主题，支持代码高亮和数学公式',
+        en: 'Write presentations in Markdown with themes, code highlighting, and math',
+      },
+    },
+    {
+      path: 'markdown-resume-to-pdf',
+      title: {
+        zh: 'Markdown 简历转 PDF',
+        en: 'Markdown Resume to PDF',
+      },
+      description: {
+        zh: '用 Markdown 写简历，一键生成排版专业的 PDF',
+        en: 'Write your resume in Markdown, export a professionally formatted PDF',
+      },
+    },
+    {
+      path: 'ai-chat-export-to-pdf',
+      title: {
+        zh: 'AI 对话导出 PDF',
+        en: 'AI Chat Export to PDF',
+      },
+      description: {
+        zh: '保存 ChatGPT / Claude / DeepSeek 对话为精美 PDF',
+        en: 'Save ChatGPT / Claude / DeepSeek conversations as beautiful PDF',
+      },
+    },
+    {
+      path: 'markdown-to-presentation-slides',
+      title: {
+        zh: 'Markdown 转 PPT 替代方案',
+        en: 'Markdown Presentation Maker',
+      },
+      description: {
+        zh: '告别 PowerPoint，用最简单的方式制作演示文稿',
+        en: 'Skip PowerPoint — the simplest way to create presentation slides',
+      },
+    },
   ]
 </script>
 
