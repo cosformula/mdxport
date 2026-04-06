@@ -58,7 +58,7 @@
   let imageAssets = $state<Record<string, LocalImageAsset>>({})
 
   let editorMode = $state<'code' | 'wysiwyg'>(
-    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
+    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'wysiwyg',
   )
 
   let style = $state<'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-modern' | 'redbook-forest' | 'redbook-blueprint' | 'redbook-clean'>(

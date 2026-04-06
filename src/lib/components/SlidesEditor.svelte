@@ -52,7 +52,7 @@
   let persistedImageAssets = $derived.by(() => buildDocumentAssets(imageAssets))
 
   let editorMode = $state<'code' | 'wysiwyg'>(
-    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
+    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'wysiwyg',
   )
 
   let style = $state<'slides-modern' | 'slides-dark' | 'slides-minimal'>(

@@ -141,7 +141,7 @@
   let isDragging = $state(false)
 
   let editorMode = $state<'code' | 'wysiwyg'>(
-    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
+    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'wysiwyg',
   )
 
   // Style state (PDF only — no redbook styles)
