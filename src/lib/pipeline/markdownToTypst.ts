@@ -772,7 +772,7 @@ function renderImage(node: Image): string {
 	// Basic image support. 
 	// If alt text exists, we could use it for accessibility or caption, but Typst #image doesn't strictly require it.
 	// We'll just output the image function.
-	return `#image("${escapeTypstString(node.url)}")`;
+	return `#image("${escapeTypstString(node.url)}", width: 100%)`;
 }
 
 function renderLink(
