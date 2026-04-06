@@ -1,13 +1,13 @@
 import type { UILang } from '$lib/i18n/lang';
 import type { Template } from './pdf-templates';
 
-export const REDBOOK_TEMPLATES: Record<UILang, Template[]> = {
+export const CARD_TEMPLATES: Record<UILang, Template[]> = {
 	zh: [
 		{
 			id: 'quick-start',
 			name: '快速上手',
 			icon: '📖',
-			content: `# 卡片模式快速上手
+			content: `# 社交卡片快速上手
 
 用 Markdown 制作精美社交媒体卡片
 
@@ -130,7 +130,7 @@ type Route = \`/api/\${string}\`;
 			id: 'quick-start',
 			name: 'Quick Start',
 			icon: '📖',
-			content: `# Card Mode Quick Start
+			content: `# Social Cards Quick Start
 
 Create beautiful social media cards with Markdown
 

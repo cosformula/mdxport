@@ -734,14 +734,14 @@
           PDF
         </a>
         <a
-          href="/{lang}/redbook/"
+          href="/{lang}/cards/"
           class="mode-toggle-item"
           onclick={(e) => {
             e.preventDefault()
-            void navigateTo(`/${lang}/redbook/`)
+            void navigateTo(`/${lang}/cards/`)
           }}
         >
-          {lang === 'zh' ? '卡片' : 'Card'}
+          {lang === 'zh' ? '卡片' : 'Cards'}
         </a>
         <span class="mode-toggle-item active">{lang === 'zh' ? '幻灯片' : 'Slides'}</span>
       </div>

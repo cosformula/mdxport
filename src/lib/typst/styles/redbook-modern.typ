@@ -1,7 +1,7 @@
-// 小红书现代卡片风格 (Xiaohongshu Modern Card Style)
+// 小红书现代卡片风格 (Redbook Modern Card Style)
 // 特点：渐变装饰、圆角元素、多主题色支持。
 
-#import "redbook-typography.typ": resolve-tokens
+#import "redbook-typography.typ": resolve-layout, resolve-tokens
 
 #let _themes = (
   "pink": (
@@ -90,7 +90,9 @@
   let size-preset = args.at("size", default: "compact")
   let density-preset = args.at("density", default: "comfortable")
   let theme-name = args.at("theme", default: "indigo")
+  let export-preset = args.at("preset", default: "redbook-portrait")
   let tokens = resolve-tokens(size: size-preset, density: density-preset)
+  let layout = resolve-layout(preset: export-preset)
   let theme = _themes.at(theme-name, default: _themes.at("indigo"))
 
   let sans-fonts = ("IBM Plex Sans", "Roboto", "Libertinus Sans", "Noto Sans CJK SC", "Noto Sans SC", "Noto Color Emoji")
@@ -121,8 +123,8 @@
   let panel-border = theme.at("panel-border")
 
   set page(
-    width: 105mm,
-    height: 140mm,
+    width: layout.at("page-width"),
+    height: layout.at("page-height"),
     margin: (x: 10mm, top: 12mm, bottom: 14mm),
     fill: theme.at("bg"),
     background: {
@@ -136,7 +138,7 @@
       )
       // Top gradient stripe
       place(top + left,
-        rect(width: 105mm, height: 3pt, fill: gradient.linear(accent, accent2, angle: 0deg))
+        rect(width: layout.at("page-width"), height: 3pt, fill: gradient.linear(accent, accent2, angle: 0deg))
       )
     },
   )

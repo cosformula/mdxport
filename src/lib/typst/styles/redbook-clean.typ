@@ -1,14 +1,16 @@
-// 小红书素雅卡片风格 (Xiaohongshu Clean Card Style)
+// 小红书素雅卡片风格 (Redbook Clean Card Style)
 // 特点：纯白底、单一深色强调、极简结构线、Notion/Linear 风格。
 
-#import "redbook-typography.typ": resolve-tokens
+#import "redbook-typography.typ": resolve-layout, resolve-tokens
 
 #let article(title: "", authors: (), ..args, body) = {
   let lang = args.at("lang", default: "zh")
   let font-choice = args.at("font", default: "sans")
   let size-preset = args.at("size", default: "compact")
   let density-preset = args.at("density", default: "comfortable")
+  let export-preset = args.at("preset", default: "redbook-portrait")
   let tokens = resolve-tokens(size: size-preset, density: density-preset)
+  let layout = resolve-layout(preset: export-preset)
 
   let sans-fonts = ("IBM Plex Sans", "Roboto", "Libertinus Sans", "Noto Sans CJK SC", "Noto Sans SC", "Noto Color Emoji")
   let serif-fonts = ("Libertinus Serif", "Noto Serif SC", "Noto Serif CJK SC", "Noto Color Emoji")
@@ -38,14 +40,14 @@
   let border = rgb("#E4E4E7")
 
   set page(
-    width: 105mm,
-    height: 140mm,
+    width: layout.at("page-width"),
+    height: layout.at("page-height"),
     margin: (x: 10mm, top: 12mm, bottom: 14mm),
     fill: bg,
     background: {
       // Top accent bar
       place(top + left,
-        rect(width: 105mm, height: 3pt, fill: accent)
+        rect(width: layout.at("page-width"), height: 3pt, fill: accent)
       )
       // Subtle bottom-right dot pattern
       place(bottom + right, dx: -6mm, dy: -8mm,

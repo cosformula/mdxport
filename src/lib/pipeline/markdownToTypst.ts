@@ -2,6 +2,7 @@ import { unified } from 'unified';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import type { CardExportPresetId } from '$lib/card-export-presets';
 // @ts-ignore
 // @ts-ignore
 import remarkPagebreakToken from './plugins/remark-pagebreak-token';
@@ -75,6 +76,7 @@ export type MarkdownToTypstOptions = {
 	size?: 'compact' | 'regular' | 'large';
 	density?: 'tight' | 'comfortable' | 'relaxed';
 	theme?: string;
+	exportPreset?: CardExportPresetId;
 };
 
 export type TypstStyleId = 'modern-tech' | 'classic-editorial' | 'redbook-knowledge' | 'redbook-dark' | 'redbook-minimalist' | 'redbook-modern' | 'redbook-forest' | 'redbook-blueprint' | 'redbook-clean' | 'slides-modern' | 'slides-dark' | 'slides-minimal';
@@ -157,7 +159,10 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 		options.density && options.density !== 'comfortable'
 			? `density: "${options.density}"`
 			: null,
-		options.theme ? `theme: "${options.theme}"` : null
+		options.theme ? `theme: "${options.theme}"` : null,
+		isRedbookStyle && options.exportPreset
+			? `preset: "${options.exportPreset}"`
+			: null
 	]
 		.filter(isNonEmpty)
 		.join(', ');

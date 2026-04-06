@@ -1,14 +1,16 @@
-// 小红书蓝图卡片风格 (Xiaohongshu Blueprint Card Style)
+// 小红书蓝图卡片风格 (Redbook Blueprint Card Style)
 // 特点：深蓝背景、荧光蓝/青色强调、网格点阵装饰、角标、适合科技/编程类。
 
-#import "redbook-typography.typ": resolve-tokens
+#import "redbook-typography.typ": resolve-layout, resolve-tokens
 
 #let article(title: "", authors: (), ..args, body) = {
   let lang = args.at("lang", default: "zh")
   let font-choice = args.at("font", default: "sans")
   let size-preset = args.at("size", default: "compact")
   let density-preset = args.at("density", default: "comfortable")
+  let export-preset = args.at("preset", default: "redbook-portrait")
   let tokens = resolve-tokens(size: size-preset, density: density-preset)
+  let layout = resolve-layout(preset: export-preset)
 
   let sans-fonts = ("IBM Plex Sans", "Roboto", "Libertinus Sans", "Noto Sans CJK SC", "Noto Sans SC", "Noto Color Emoji")
   let serif-fonts = ("Libertinus Serif", "Noto Serif SC", "Noto Serif CJK SC", "Noto Color Emoji")
@@ -39,17 +41,17 @@
   let text-heading = rgb("#E0F0FF")
 
   set page(
-    width: 105mm,
-    height: 140mm,
+    width: layout.at("page-width"),
+    height: layout.at("page-height"),
     margin: (x: 10mm, top: 12mm, bottom: 14mm),
     fill: bg-dark,
     background: {
       // Grid dots
       place(top + left,
         grid(
-          columns: (10mm,) * 10,
-          rows: (10mm,) * 14,
-          ..range(140).map(_ =>
+          columns: (10mm,) * 12,
+          rows: (10mm,) * 20,
+          ..range(240).map(_ =>
             place(center + horizon, circle(radius: 0.3pt, fill: grid-color))
           )
         )

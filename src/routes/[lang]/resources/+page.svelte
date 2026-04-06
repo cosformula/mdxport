@@ -50,14 +50,14 @@
       },
     },
     {
-      path: 'redbook',
+      path: 'cards',
       title: {
-        zh: 'Markdown 转小红书卡片',
-        en: 'Markdown to RedNote Cards',
+        zh: 'Markdown 转社交卡片',
+        en: 'Markdown to Social Cards',
       },
       description: {
-        zh: '将 Markdown 转为精美的小红书图片卡片，多种样式可选',
-        en: 'Convert Markdown to beautiful image cards with multiple styles',
+        zh: '将 Markdown 转为精美的社交图片卡片，支持小红书、Instagram、X 和 Story 尺寸',
+        en: 'Convert Markdown to polished social image cards with Redbook, Instagram, X, and Story presets',
       },
     },
     {

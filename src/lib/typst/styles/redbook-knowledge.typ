@@ -1,14 +1,16 @@
-// 小红书知识卡片风格 (Xiaohongshu Knowledge Card Style)
+// 小红书知识卡片风格 (Redbook Knowledge Card Style)
 // 特点：3:4 竖版卡片、暖白背景、小红书红强调色、顶部色条。
 
-#import "redbook-typography.typ": resolve-tokens
+#import "redbook-typography.typ": resolve-layout, resolve-tokens
 
 #let article(title: "", authors: (), ..args, body) = {
   let lang = args.at("lang", default: "zh")
   let font-choice = args.at("font", default: "sans")
   let size-preset = args.at("size", default: "compact")
   let density-preset = args.at("density", default: "comfortable")
+  let export-preset = args.at("preset", default: "redbook-portrait")
   let tokens = resolve-tokens(size: size-preset, density: density-preset)
+  let layout = resolve-layout(preset: export-preset)
 
   let sans-fonts = ("IBM Plex Sans", "Roboto", "Libertinus Sans", "Noto Sans CJK SC", "Noto Sans SC", "Noto Color Emoji")
   let serif-fonts = ("Libertinus Serif", "Noto Serif SC", "Noto Serif CJK SC", "Noto Color Emoji")
@@ -37,14 +39,14 @@
   let text-dark = rgb("#2D2D2D")
 
   set page(
-    width: 105mm,
-    height: 140mm,
+    width: layout.at("page-width"),
+    height: layout.at("page-height"),
     margin: (x: 10mm, top: 14mm, bottom: 14mm),
     fill: warm-bg,
     background: {
       // Top accent bar
       place(top + left,
-        rect(width: 105mm, height: 4pt, fill: red)
+        rect(width: layout.at("page-width"), height: 4pt, fill: red)
       )
       // Subtle warm circle bottom-left
       place(bottom + left, dx: -15mm, dy: 20mm,

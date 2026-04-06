@@ -5,6 +5,13 @@
   import { getPdfjs } from '$lib/pdf/pdfjs'
   import { markdownToTypst } from '$lib/pipeline/markdownToTypst'
   import type { TypstStyleId } from '$lib/pipeline/markdownToTypst'
+  import {
+    DEFAULT_CARD_EXPORT_PRESET,
+    getCardExportPreset,
+    getDefaultCardExportPreset,
+    normalizeCardExportPresetId,
+    type CardExportPresetId,
+  } from '$lib/card-export-presets'
   import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
@@ -12,7 +19,7 @@
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
   import CardGallery from '$lib/components/CardGallery.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
-  import { REDBOOK_TEMPLATES } from '$lib/templates/redbook-templates'
+  import { CARD_TEMPLATES } from '$lib/templates/card-templates'
   import {
     documentStore,
     isBrokenTemplateDocument,
@@ -87,9 +94,18 @@
       'comfortable',
   )
 
-  let cardColumns = $state(
-    (browser && parseInt(localStorage.getItem('mdxport-card-columns') || '0', 10)) || 0,
-  )
+  let cardExportPreset = $state<CardExportPresetId>(DEFAULT_CARD_EXPORT_PRESET)
+
+  // Toolbar popover state
+  let openPopover = $state<'style' | 'layout' | null>(null)
+
+  function togglePopover(name: 'style' | 'layout') {
+    openPopover = openPopover === name ? null : name
+  }
+
+  function closePopovers() {
+    openPopover = null
+  }
 
   // Compilation state
   let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
@@ -121,6 +137,13 @@
     if (!browser) return
     hasInitializedMarkdown = true
     ;(async () => {
+      const storedPreset = localStorage.getItem('mdxport-card-export-preset')
+      const normalizedPreset = normalizeCardExportPresetId(storedPreset)
+      cardExportPreset = normalizedPreset ?? getDefaultCardExportPreset(lang)
+      if (cardExportPreset !== storedPreset && cardExportPreset) {
+        localStorage.setItem('mdxport-card-export-preset', cardExportPreset)
+      }
+
       await documentStore.init()
       // Migrate old localStorage data
       const oldSaved = localStorage.getItem('mdxport-redbook-markdown')
@@ -162,7 +185,7 @@
         }
       }
       // Create from template
-      const defaultContent = REDBOOK_TEMPLATES[lang]?.[0]?.content ?? ''
+      const defaultContent = CARD_TEMPLATES[lang]?.[0]?.content ?? ''
       markdown = defaultContent
       const doc = await documentStore.createDocument('redbook', defaultContent, undefined, 'template')
       applyLoadedDocument(doc)
@@ -211,6 +234,8 @@
     return `${base} - mdxport.com`
   })
 
+  let activeCardExportPreset = $derived.by(() => getCardExportPreset(cardExportPreset))
+
   // ========================================
   // Lifecycle
   // ========================================
@@ -233,7 +258,7 @@
       isLoading = false
 
       // Trigger first compile
-      void compile(markdown, style, lang, font, cardSize, cardDensity, cardTheme)
+      void compile(markdown, style, lang, font, cardSize, cardDensity, cardTheme, cardExportPreset)
     })().catch((error) => {
       console.error(error)
       isLoading = false
@@ -264,7 +289,7 @@
     localStorage.setItem('mdxport-card-font', font)
     localStorage.setItem('mdxport-card-size', cardSize)
     localStorage.setItem('mdxport-card-density', cardDensity)
-    localStorage.setItem('mdxport-card-columns', String(cardColumns))
+    localStorage.setItem('mdxport-card-export-preset', cardExportPreset)
     localStorage.setItem('mdxport-editor-mode', editorMode)
   })
 
@@ -293,11 +318,20 @@
     }
 
     if (prevLang !== null && prevLang !== currentLang) {
-      const oldTemplates = REDBOOK_TEMPLATES[prevLang]
+      const oldTemplates = CARD_TEMPLATES[prevLang]
       const isOldDefault = oldTemplates.some((tmpl) => tmpl.content === markdown)
       if (isOldDefault || markdown.trim() === '') {
-        const newTemplates = REDBOOK_TEMPLATES[currentLang]
+        const newTemplates = CARD_TEMPLATES[currentLang]
         markdown = newTemplates[0]?.content ?? ''
+      }
+
+      try {
+        const storedPreset = localStorage.getItem('mdxport-card-export-preset')
+        if (!storedPreset) {
+          cardExportPreset = getDefaultCardExportPreset(currentLang)
+        }
+      } catch {
+        // ignore
       }
     }
     prevLang = currentLang
@@ -318,12 +352,13 @@
     const _cardSize = cardSize
     const _cardDensity = cardDensity
     const _cardTheme = cardTheme
+    const _cardExportPreset = cardExportPreset
 
     if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
 
     const delay = hasEverCompiled ? 450 : 0
     autoPreviewTimer = window.setTimeout(() => {
-      void compile(md, _style, _lang, _font, _cardSize, _cardDensity, _cardTheme)
+      void compile(md, _style, _lang, _font, _cardSize, _cardDensity, _cardTheme, _cardExportPreset)
     }, delay)
 
     return () => {
@@ -342,6 +377,7 @@
     compileSize: 'compact' | 'regular' | 'large' = 'compact',
     compileDensity: 'tight' | 'comfortable' | 'relaxed' = 'comfortable',
     compileTheme: string = 'indigo',
+    compileExportPreset: CardExportPresetId = DEFAULT_CARD_EXPORT_PRESET,
   ) {
     if (!client) return
     hasEverCompiled = true
@@ -396,6 +432,7 @@
         size: compileSize,
         density: compileDensity,
         theme: compileTheme,
+        exportPreset: compileExportPreset,
       })
       // @ts-ignore
       const pdfData = await client.compilePdf(mainTypst, images)
@@ -410,16 +447,17 @@
   }
 
   // ========================================
-  // Download cards (render PDF pages to 1242px-wide PNGs)
+  // Download cards using the active export preset resolution
   // ========================================
   async function downloadCards() {
     if (!pdfBytes) return
+    const exportPreset = getCardExportPreset(cardExportPreset)
     const pdfjs = await getPdfjs()
     const doc = await pdfjs.getDocument({ data: pdfBytes.slice() }).promise
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i)
       const baseVp = page.getViewport({ scale: 1 })
-      const scale = 1242 / baseVp.width
+      const scale = exportPreset.fullResWidth / baseVp.width
       const viewport = page.getViewport({ scale })
       const canvas = document.createElement('canvas')
       canvas.width = viewport.width
@@ -564,7 +602,7 @@
   // ========================================
   function switchLang() {
     const targetLang = lang === 'zh' ? 'en' : 'zh'
-    void goto(`/${targetLang}/redbook/`)
+    void goto(`/${targetLang}/cards/`)
   }
 
   function toggleMenu(e?: Event) {
@@ -577,6 +615,7 @@
 
   function closeMenu() {
     isMenuOpen = false
+    closePopovers()
   }
 
   // ========================================
@@ -721,13 +760,13 @@
       </a>
       <div class="mode-toggle hidden-mobile">
         <a href="/{lang}/" class="mode-toggle-item">PDF</a>
-        <span class="mode-toggle-item active">{lang === 'zh' ? '卡片' : 'Card'}</span>
+        <span class="mode-toggle-item active">{lang === 'zh' ? '卡片' : 'Cards'}</span>
         <a href="/{lang}/slides/" class="mode-toggle-item">{lang === 'zh' ? '幻灯片' : 'Slides'}</a>
       </div>
       <DocumentMenu
         {lang}
         mode="redbook"
-        templates={REDBOOK_TEMPLATES[lang] || []}
+        templates={CARD_TEMPLATES[lang] || []}
         currentContent={markdown}
         onDocumentLoad={(doc) => { applyLoadedDocument(doc) }}
       />
@@ -893,50 +932,81 @@
       class:mobile-hidden={activeMobileTab !== 'preview'}
       style="width: {100 - leftPaneWidth}%"
     >
-      <div class="preview-toolbar">
-        <div class="preview-toolbar-left">
-          <select class="style-select" bind:value={style}>
-            <option value="redbook-clean">{lang === 'zh' ? '现代素雅' : 'Clean'}</option>
-            <option value="redbook-modern">{lang === 'zh' ? '彩色现代' : 'Modern'}</option>
-            <option value="redbook-minimalist">{lang === 'zh' ? '极简黑白' : 'Minimal'}</option>
-            <option value="redbook-knowledge">{lang === 'zh' ? '经典暖白' : 'Warm'}</option>
-            <option value="redbook-forest">{lang === 'zh' ? '清新森林' : 'Forest'}</option>
-            <option value="redbook-blueprint">{lang === 'zh' ? '科技蓝图' : 'Blueprint'}</option>
-            <option value="redbook-dark">{lang === 'zh' ? '深邃暗夜' : 'Dark'}</option>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="preview-toolbar" onclick={(e: MouseEvent) => e.stopPropagation()}>
+        <div class="preview-toolbar-row">
+          <select class="style-select" bind:value={cardExportPreset}>
+            <option value="redbook-portrait">{lang === 'zh' ? '小红书 3:4' : 'Redbook 3:4'}</option>
+            <option value="instagram-feed">Instagram 4:5</option>
+            <option value="x-square">{lang === 'zh' ? 'X 方图 1:1' : 'X Square 1:1'}</option>
+            <option value="story">Story 9:16</option>
           </select>
-          {#if style === 'redbook-modern'}
-            <select class="font-select" bind:value={cardTheme}>
-              <option value="indigo">{lang === 'zh' ? '靛蓝' : 'Indigo'}</option>
-              <option value="amber">{lang === 'zh' ? '琥珀' : 'Amber'}</option>
-              <option value="teal">{lang === 'zh' ? '青碧' : 'Teal'}</option>
-              <option value="violet">{lang === 'zh' ? '紫罗兰' : 'Violet'}</option>
-              <option value="rose">{lang === 'zh' ? '玫红' : 'Rose'}</option>
-              <option value="pink">{lang === 'zh' ? '粉彩' : 'Pink'}</option>
-            </select>
-          {/if}
-          <select class="font-select" bind:value={font}>
-            <option value="sans">{lang === 'zh' ? '无衬线' : 'Sans'}</option>
-            <option value="serif">{lang === 'zh' ? '衬线' : 'Serif'}</option>
-          </select>
-          <select class="font-select" bind:value={cardSize}>
-            <option value="compact">{lang === 'zh' ? '紧凑' : 'Compact'}</option>
-            <option value="regular">{lang === 'zh' ? '标准' : 'Regular'}</option>
-            <option value="large">{lang === 'zh' ? '大字' : 'Large'}</option>
-          </select>
-          <select class="font-select" bind:value={cardDensity}>
-            <option value="tight">{lang === 'zh' ? '紧密' : 'Tight'}</option>
-            <option value="comfortable">{lang === 'zh' ? '舒适' : 'Comfortable'}</option>
-            <option value="relaxed">{lang === 'zh' ? '宽松' : 'Relaxed'}</option>
-          </select>
-          <select class="columns-select" bind:value={cardColumns}>
-            <option value={0}>{lang === 'zh' ? '自动排列' : 'Auto'}</option>
-            <option value={1}>1 {lang === 'zh' ? '列' : 'col'}</option>
-            <option value={2}>2 {lang === 'zh' ? '列' : 'col'}</option>
-            <option value={3}>3 {lang === 'zh' ? '列' : 'col'}</option>
-            <option value={4}>4 {lang === 'zh' ? '列' : 'col'}</option>
-          </select>
-        </div>
-        <div class="preview-toolbar-right">
+
+          <div class="popover-anchor">
+            <button
+              class="toolbar-popover-btn"
+              class:active={openPopover === 'style'}
+              onclick={() => togglePopover('style')}
+            >
+              {lang === 'zh' ? '风格' : 'Style'}
+              <span class="popover-chevron">{openPopover === 'style' ? '▴' : '▾'}</span>
+            </button>
+            {#if openPopover === 'style'}
+              <div class="popover-dropdown">
+                <select class="style-select" bind:value={style}>
+                  <option value="redbook-clean">{lang === 'zh' ? '现代素雅' : 'Clean'}</option>
+                  <option value="redbook-modern">{lang === 'zh' ? '彩色现代' : 'Modern'}</option>
+                  <option value="redbook-minimalist">{lang === 'zh' ? '极简黑白' : 'Minimal'}</option>
+                  <option value="redbook-knowledge">{lang === 'zh' ? '经典暖白' : 'Warm'}</option>
+                  <option value="redbook-forest">{lang === 'zh' ? '清新森林' : 'Forest'}</option>
+                  <option value="redbook-blueprint">{lang === 'zh' ? '科技蓝图' : 'Blueprint'}</option>
+                  <option value="redbook-dark">{lang === 'zh' ? '深邃暗夜' : 'Dark'}</option>
+                </select>
+                {#if style === 'redbook-modern'}
+                  <select class="font-select" bind:value={cardTheme}>
+                    <option value="indigo">{lang === 'zh' ? '靛蓝' : 'Indigo'}</option>
+                    <option value="amber">{lang === 'zh' ? '琥珀' : 'Amber'}</option>
+                    <option value="teal">{lang === 'zh' ? '青碧' : 'Teal'}</option>
+                    <option value="violet">{lang === 'zh' ? '紫罗兰' : 'Violet'}</option>
+                    <option value="rose">{lang === 'zh' ? '玫红' : 'Rose'}</option>
+                    <option value="pink">{lang === 'zh' ? '粉彩' : 'Pink'}</option>
+                  </select>
+                {/if}
+              </div>
+            {/if}
+          </div>
+
+          <div class="popover-anchor">
+            <button
+              class="toolbar-popover-btn"
+              class:active={openPopover === 'layout'}
+              onclick={() => togglePopover('layout')}
+            >
+              {lang === 'zh' ? '版式' : 'Layout'}
+              <span class="popover-chevron">{openPopover === 'layout' ? '▴' : '▾'}</span>
+            </button>
+            {#if openPopover === 'layout'}
+              <div class="popover-dropdown">
+                <select class="font-select" bind:value={font}>
+                  <option value="sans">{lang === 'zh' ? '无衬线' : 'Sans'}</option>
+                  <option value="serif">{lang === 'zh' ? '衬线' : 'Serif'}</option>
+                </select>
+                <select class="font-select" bind:value={cardSize}>
+                  <option value="compact">{lang === 'zh' ? '紧凑' : 'Compact'}</option>
+                  <option value="regular">{lang === 'zh' ? '标准' : 'Regular'}</option>
+                  <option value="large">{lang === 'zh' ? '大字' : 'Large'}</option>
+                </select>
+                <select class="font-select" bind:value={cardDensity}>
+                  <option value="tight">{lang === 'zh' ? '紧密' : 'Tight'}</option>
+                  <option value="comfortable">{lang === 'zh' ? '舒适' : 'Comfortable'}</option>
+                  <option value="relaxed">{lang === 'zh' ? '宽松' : 'Relaxed'}</option>
+                </select>
+              </div>
+            {/if}
+          </div>
+
+          <div class="preview-toolbar-spacer"></div>
+
           {#if status === 'compiling'}
             <div class="compiling-badge">
               <div class="spinner-xs"></div>
@@ -956,7 +1026,16 @@
           </button>
         </div>
       </div>
-      <CardGallery {pdfBytes} {status} {filename} {lang} columns={cardColumns} />
+      <CardGallery
+        {pdfBytes}
+        {status}
+        {filename}
+        {lang}
+        columns={0}
+        aspectRatio={activeCardExportPreset.aspectRatio}
+        fullResWidth={activeCardExportPreset.fullResWidth}
+        thumbWidth={activeCardExportPreset.thumbWidth}
+      />
     </section>
   </main>
 </div>
@@ -1151,8 +1230,7 @@
   }
 
   .style-select,
-  .font-select,
-  .columns-select {
+  .font-select {
     appearance: none;
     -webkit-appearance: none;
     padding: calc(0.5rem - 1px) 2rem calc(0.5rem - 1px) 0.875rem;
@@ -1172,8 +1250,7 @@
   }
 
   .style-select:hover,
-  .font-select:hover,
-  .columns-select:hover {
+  .font-select:hover {
     background-color: var(--color-gray-100);
     border-color: var(--color-gray-300);
   }
@@ -1309,31 +1386,85 @@
 
   .preview-toolbar {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: stretch;
     padding: 4px 8px;
     border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
     background: var(--color-white, #fff);
     flex-shrink: 0;
-    gap: 8px;
-    min-height: 36px;
   }
 
-  .preview-toolbar-left {
+  .preview-toolbar-row {
     display: flex;
     align-items: center;
     gap: 6px;
   }
 
-  .preview-toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .preview-toolbar-spacer {
+    flex: 1;
   }
 
-  .preview-toolbar-right > .btn {
+  .preview-toolbar-row > .btn {
     padding: calc(0.5rem - 1px) 0.875rem;
     font-size: 0.8125rem;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* Popover trigger button */
+  .toolbar-popover-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: calc(0.5rem - 1px) 0.875rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    font-family: var(--font-mono);
+    line-height: 1;
+    background: var(--color-gray-50);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    color: var(--color-gray-700, #374151);
+    transition: all var(--transition-fast);
+  }
+
+  .toolbar-popover-btn:hover {
+    background: var(--color-gray-100);
+    border-color: var(--color-gray-300);
+  }
+
+  .toolbar-popover-btn.active {
+    background: var(--color-gray-100);
+    border-color: var(--color-gray-400);
+  }
+
+  .popover-chevron {
+    font-size: 0.625rem;
+    color: var(--color-gray-400);
+    line-height: 1;
+  }
+
+  /* Popover anchor + dropdown */
+  .popover-anchor {
+    position: relative;
+  }
+
+  .popover-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--color-white, #fff);
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+    white-space: nowrap;
   }
 
   .compiling-badge {

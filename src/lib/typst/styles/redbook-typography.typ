@@ -38,3 +38,27 @@
     "list-spacing": list-spacing,
   )
 }
+
+#let resolve-layout(preset: "redbook-portrait") = {
+  if preset == "redbook-portrait" {
+    (
+      "page-width": 105mm,
+      "page-height": 140mm,
+    )
+  } else if preset == "x-square" {
+    (
+      "page-width": 108mm,
+      "page-height": 108mm,
+    )
+  } else if preset == "story" {
+    (
+      "page-width": 108mm,
+      "page-height": 192mm,
+    )
+  } else {
+    (
+      "page-width": 108mm,
+      "page-height": 135mm,
+    )
+  }
+}

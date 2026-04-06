@@ -1035,7 +1035,7 @@
       </a>
       <div class="mode-toggle hidden-mobile">
         <span class="mode-toggle-item active">PDF</span>
-        <a href="/{lang}/redbook/" class="mode-toggle-item">{lang === 'zh' ? '卡片' : 'Card'}</a>
+        <a href="/{lang}/cards/" class="mode-toggle-item">{lang === 'zh' ? '卡片' : 'Cards'}</a>
         <a href="/{lang}/slides/" class="mode-toggle-item">{lang === 'zh' ? '幻灯片' : 'Slides'}</a>
       </div>
       <DocumentMenu

@@ -52,6 +52,18 @@ Each mode comes with ready-to-use templates to help you get started quickly — 
 </p>
 
 <p align="center">
+  <img src="static/screenshots/screenshot_cards.png" alt="MDXport Social Cards" width="100%" />
+  <br>
+  <em>Export Markdown as beautiful social media cards</em>
+</p>
+
+<p align="center">
+  <img src="static/screenshots/screenshot_slides.png" alt="MDXport Slides" width="100%" />
+  <br>
+  <em>Create presentation slides from Markdown</em>
+</p>
+
+<p align="center">
   <img src="static/screenshots/screenshot_features.png" alt="MDXport Features" width="100%" />
   <br>
   <em>Rich support for Math, Mermaid diagrams, and Charts</em>

@@ -1,14 +1,16 @@
-// 小红书深色卡片风格 (Xiaohongshu Dark Card Style)
+// 小红书深色卡片风格 (Redbook Dark Card Style)
 // 特点：深色背景、浅色文字、蓝紫强调色、科技感。
 
-#import "redbook-typography.typ": resolve-tokens
+#import "redbook-typography.typ": resolve-layout, resolve-tokens
 
 #let article(title: "", authors: (), ..args, body) = {
   let lang = args.at("lang", default: "zh")
   let font-choice = args.at("font", default: "sans")
   let size-preset = args.at("size", default: "compact")
   let density-preset = args.at("density", default: "comfortable")
+  let export-preset = args.at("preset", default: "redbook-portrait")
   let tokens = resolve-tokens(size: size-preset, density: density-preset)
+  let layout = resolve-layout(preset: export-preset)
 
   let sans-fonts = ("IBM Plex Sans", "Roboto", "Libertinus Sans", "Noto Sans CJK SC", "Noto Sans SC", "Noto Color Emoji")
   let serif-fonts = ("Libertinus Serif", "Noto Serif SC", "Noto Serif CJK SC", "Noto Color Emoji")
@@ -31,8 +33,8 @@
   let list-spacing = tokens.at("list-spacing")
 
   set page(
-    width: 105mm,
-    height: 140mm,
+    width: layout.at("page-width"),
+    height: layout.at("page-height"),
     margin: (x: 8mm, top: 10mm, bottom: 12mm),
     fill: rgb("#1A1A2E"),
   )
