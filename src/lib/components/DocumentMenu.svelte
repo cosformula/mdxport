@@ -2,20 +2,22 @@
   import type { UILang } from '$lib/i18n/lang'
   import type { Template } from '$lib/templates/pdf-templates'
   import { deriveNameFromContent, documentStore } from '$lib/stores/documentStore.svelte'
-  import type { SavedDocument } from '$lib/storage/documents'
+  import type { SavedDocument, SavedDocumentAsset } from '$lib/storage/documents'
 
   let {
     lang,
     mode,
     templates,
     currentContent,
+    documentAssets,
     onDocumentLoad,
   }: {
     lang: UILang
     mode: 'pdf' | 'redbook' | 'slides'
     templates: Template[]
     currentContent: string
-    onDocumentLoad: (content: string) => void
+    documentAssets?: Record<string, SavedDocumentAsset>
+    onDocumentLoad: (doc: SavedDocument) => void
   } = $props()
 
   let isOpen = $state(false)
@@ -50,42 +52,51 @@
 
   async function openDocument(doc: SavedDocument) {
     await saveCurrentIfNeeded()
-    const content = await documentStore.loadDocument(doc.id)
-    if (content === null) return
-    onDocumentLoad(content)
+    const loadedDoc = await documentStore.loadDocument(doc.id)
+    if (loadedDoc === null) return
+    onDocumentLoad(loadedDoc)
     close()
   }
 
   async function newFromTemplate(template: Template) {
     await saveCurrentIfNeeded()
-    const { content } = await documentStore.createDocument(mode, template.content)
-    onDocumentLoad(content)
+    const doc = await documentStore.createDocument(mode, template.content, undefined, 'template')
+    onDocumentLoad(doc)
     close()
   }
 
   async function newBlank() {
     await saveCurrentIfNeeded()
-    const { content } = await documentStore.createDocument(mode, '')
-    onDocumentLoad(content)
+    const doc = await documentStore.createDocument(mode, '', undefined, 'blank')
+    onDocumentLoad(doc)
     close()
+  }
+
+  async function createFallbackDocument() {
+    const defaultTemplate = templates[0]
+    if (defaultTemplate) {
+      await newFromTemplate(defaultTemplate)
+      return
+    }
+    await newBlank()
   }
 
   async function saveCurrentIfNeeded() {
     if (!documentStore.currentDocId) return
-    await documentStore.saveNow(documentStore.currentDocId, currentContent)
+    await documentStore.saveNow(documentStore.currentDocId, currentContent, documentAssets)
   }
 
   async function handleDelete(e: Event, doc: SavedDocument) {
     e.stopPropagation()
     const wasCurrent = doc.id === documentStore.currentDocId
     await documentStore.deleteDocument(doc.id)
-    // If deleted the current doc, switch to another or create new
+    // If deleted the current doc, switch to another or recreate from template
     if (wasCurrent) {
       const remaining = currentModeDocs.filter((d) => d.id !== doc.id)
       if (remaining.length > 0) {
         await openDocument(remaining[0])
       } else {
-        await newBlank()
+        await createFallbackDocument()
       }
     }
   }

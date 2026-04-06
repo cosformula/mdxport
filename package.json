@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.9",
@@ -21,7 +22,8 @@
     "svelte-check": "^4.3.4",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
-    "vite-plugin-pwa": "^1.2.0"
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.0",

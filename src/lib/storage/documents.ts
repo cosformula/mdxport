@@ -1,8 +1,17 @@
+export interface SavedDocumentAsset {
+	bytes: Uint8Array;
+	mimeType: string;
+}
+
+export type DocumentCreationSource = 'template' | 'blank' | 'import';
+
 export interface SavedDocument {
 	id: string;
 	name: string;
 	mode: 'pdf' | 'redbook' | 'slides';
 	content: string;
+	assets?: Record<string, SavedDocumentAsset>;
+	creationSource?: DocumentCreationSource;
 	createdAt: number;
 	updatedAt: number;
 }

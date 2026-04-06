@@ -13,8 +13,12 @@
   import CardGallery from '$lib/components/CardGallery.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { SLIDES_TEMPLATES } from '$lib/templates/slides-templates'
-  import { documentStore } from '$lib/stores/documentStore.svelte'
-  import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
+  import {
+    documentStore,
+    isBrokenTemplateDocument,
+    isLegacyImplicitBlankDocument,
+  } from '$lib/stores/documentStore.svelte'
+  import type { SavedDocument, SavedDocumentAsset } from '$lib/storage/documents'
 
   // Props
   interface Props {
@@ -40,10 +44,12 @@
 
   type LocalImageAsset = {
     bytes: Uint8Array
+    mimeType: string
     objectUrl: string
   }
 
   let imageAssets = $state<Record<string, LocalImageAsset>>({})
+  let persistedImageAssets = $derived.by(() => buildDocumentAssets(imageAssets))
 
   let editorMode = $state<'code' | 'wysiwyg'>(
     (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'code',
@@ -89,30 +95,42 @@
     hasInitializedMarkdown = true
     ;(async () => {
       await documentStore.init()
+      const slidesDocs = documentStore.recentDocuments.filter((d) => d.mode === 'slides')
+      const invalidAutoDocs = slidesDocs.filter(
+        (doc) => isLegacyImplicitBlankDocument(doc) || isBrokenTemplateDocument(doc),
+      )
+      if (invalidAutoDocs.length > 0) {
+        for (const doc of invalidAutoDocs) {
+          await documentStore.deleteDocument(doc.id)
+        }
+      }
+      const usableSlidesDocs = slidesDocs.filter(
+        (doc) => !isLegacyImplicitBlankDocument(doc) && !isBrokenTemplateDocument(doc),
+      )
       // Try loading current doc if it belongs to this mode
       if (documentStore.currentDocId) {
         const currentDoc = documentStore.recentDocuments.find((d) => d.id === documentStore.currentDocId)
-        if (currentDoc?.mode === 'slides') {
-          const content = await documentStore.loadDocument(documentStore.currentDocId)
-          if (content !== null) {
-            markdown = content
+        if (currentDoc?.mode === 'slides' && !isLegacyImplicitBlankDocument(currentDoc)) {
+          const doc = await documentStore.loadDocument(documentStore.currentDocId)
+          if (doc !== null) {
+            applyLoadedDocument(doc)
             return
           }
         }
       }
       // Check recent slides docs
-      const slidesDocs = documentStore.recentDocuments.filter((d) => d.mode === 'slides')
-      if (slidesDocs.length > 0) {
-        const content = await documentStore.loadDocument(slidesDocs[0].id)
-        if (content !== null) {
-          markdown = content
+      if (usableSlidesDocs.length > 0) {
+        const doc = await documentStore.loadDocument(usableSlidesDocs[0].id)
+        if (doc !== null) {
+          applyLoadedDocument(doc)
           return
         }
       }
       // Create from template
       const defaultContent = SLIDES_TEMPLATES[lang]?.[0]?.content ?? ''
-      const { content } = await documentStore.createDocument('slides', defaultContent)
-      markdown = content
+      markdown = defaultContent
+      const doc = await documentStore.createDocument('slides', defaultContent, undefined, 'template')
+      applyLoadedDocument(doc)
     })()
   })
 
@@ -191,10 +209,9 @@
 
     return () => {
       aborted = true
+      void documentStore.flushPendingSave()
       window.removeEventListener('click', handleClickOutside)
-      for (const asset of Object.values(imageAssets)) {
-        URL.revokeObjectURL(asset.objectUrl)
-      }
+      revokeImageAssetUrls(imageAssets)
     }
   })
 
@@ -211,7 +228,8 @@
   // Auto-save document to IndexedDB
   $effect(() => {
     if (!browser || !hasInitializedMarkdown || !documentStore.currentDocId) return
-    documentStore.autoSave(documentStore.currentDocId, markdown)
+    if (documentStore.isTransitioningDocument) return
+    documentStore.autoSave(documentStore.currentDocId, markdown, persistedImageAssets)
   })
 
   // ========================================
@@ -404,6 +422,56 @@
       : String(Date.now())
   }
 
+  function buildDocumentAssets(
+    assets: Record<string, LocalImageAsset>,
+  ): Record<string, SavedDocumentAsset> | undefined {
+    const entries = Object.entries(assets).map(([path, asset]) => [
+      path,
+      { bytes: asset.bytes, mimeType: asset.mimeType },
+    ])
+    if (entries.length === 0) return undefined
+    return Object.fromEntries(entries)
+  }
+
+  function revokeImageAssetUrls(assets: Record<string, LocalImageAsset>) {
+    for (const asset of Object.values(assets)) {
+      URL.revokeObjectURL(asset.objectUrl)
+    }
+  }
+
+  function restoreImageAssets(assets?: Record<string, SavedDocumentAsset>) {
+    revokeImageAssetUrls(imageAssets)
+    if (!assets) {
+      imageAssets = {}
+      return
+    }
+
+    imageAssets = Object.fromEntries(
+      Object.entries(assets).map(([path, asset]) => {
+        const bytes = asset.bytes instanceof Uint8Array
+          ? asset.bytes
+          : new Uint8Array(asset.bytes)
+        const blobBytes = new Uint8Array(bytes.byteLength)
+        blobBytes.set(bytes)
+        const objectUrl = URL.createObjectURL(new Blob([blobBytes.buffer], { type: asset.mimeType }))
+        return [
+          path,
+          {
+            bytes,
+            mimeType: asset.mimeType,
+            objectUrl,
+          },
+        ]
+      }),
+    )
+  }
+
+  function applyLoadedDocument(doc: SavedDocument) {
+    restoreImageAssets(doc.assets)
+    markdown = doc.content
+    documentStore.finishDocumentTransition()
+  }
+
   async function saveLocalImage(file: File): Promise<string> {
     if (!file.type.startsWith('image/')) {
       throw new Error(lang === 'zh' ? '仅支持图片文件' : 'Only image files are supported')
@@ -415,6 +483,7 @@
 
     imageAssets[path] = {
       bytes,
+      mimeType: file.type || 'application/octet-stream',
       objectUrl,
     }
 
@@ -475,9 +544,18 @@
   // ========================================
   // Navigation helpers
   // ========================================
+  async function navigateTo(path: string) {
+    if (documentStore.currentDocId) {
+      await documentStore.saveNow(documentStore.currentDocId, markdown, persistedImageAssets)
+    } else {
+      await documentStore.flushPendingSave()
+    }
+    await goto(path)
+  }
+
   function switchLang() {
     const targetLang = lang === 'zh' ? 'en' : 'zh'
-    void goto(`/${targetLang}/slides/`)
+    void navigateTo(`/${targetLang}/slides/`)
   }
 
   function toggleMenu(e?: Event) {
@@ -634,12 +712,37 @@
   <!-- Navbar -->
   <nav class="navbar">
     <div class="navbar-left">
-      <a href="/{lang}/" class="logo-link">
+      <a
+        href="/{lang}/"
+        class="logo-link"
+        onclick={(e) => {
+          e.preventDefault()
+          void navigateTo(`/${lang}/`)
+        }}
+      >
         <img src="/logo.png" alt="MDXport" class="logo-img" />
       </a>
       <div class="mode-toggle hidden-mobile">
-        <a href="/{lang}/" class="mode-toggle-item">PDF</a>
-        <a href="/{lang}/redbook/" class="mode-toggle-item">{lang === 'zh' ? '卡片' : 'Card'}</a>
+        <a
+          href="/{lang}/"
+          class="mode-toggle-item"
+          onclick={(e) => {
+            e.preventDefault()
+            void navigateTo(`/${lang}/`)
+          }}
+        >
+          PDF
+        </a>
+        <a
+          href="/{lang}/redbook/"
+          class="mode-toggle-item"
+          onclick={(e) => {
+            e.preventDefault()
+            void navigateTo(`/${lang}/redbook/`)
+          }}
+        >
+          {lang === 'zh' ? '卡片' : 'Card'}
+        </a>
         <span class="mode-toggle-item active">{lang === 'zh' ? '幻灯片' : 'Slides'}</span>
       </div>
       <DocumentMenu
@@ -647,18 +750,11 @@
         mode="slides"
         templates={SLIDES_TEMPLATES[lang] || []}
         currentContent={markdown}
-        onDocumentLoad={(content) => { markdown = content }}
+        documentAssets={persistedImageAssets}
+        onDocumentLoad={(doc) => { applyLoadedDocument(doc) }}
       />
     </div>
     <div class="navbar-right">
-      <button
-        class="btn btn-primary btn-sm"
-        onclick={downloadPdf}
-        disabled={!pdfBytes || status === 'compiling'}
-      >
-        {status === 'compiling' ? t('generating') : t('exportPdf')}
-      </button>
-
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="menu-container" onclick={(e) => e.stopPropagation()}>
@@ -691,6 +787,11 @@
             >
               <span class="menu-icon">🐙</span>
               GitHub
+            </a>
+
+            <a href="/{lang}/resources/" class="menu-item">
+              <span class="menu-icon">🛠️</span>
+              {lang === 'zh' ? '更多资源与工具' : 'Resources & Tools'}
             </a>
 
             <div class="menu-divider"></div>
@@ -826,16 +927,25 @@
             <option value="serif">{lang === 'zh' ? '衬线' : 'Serif'}</option>
           </select>
         </div>
-        {#if status === 'compiling'}
-          <div class="compiling-badge">
-            <div class="spinner-xs"></div>
-            <span>{lang === 'zh' ? '生成中...' : 'Generating...'}</span>
-          </div>
-        {:else if status === 'error'}
-          <div class="error-badge">
-            <span>{lang === 'zh' ? '编译失败' : 'Failed'}</span>
-          </div>
-        {/if}
+        <div class="preview-toolbar-right">
+          {#if status === 'compiling'}
+            <div class="compiling-badge">
+              <div class="spinner-xs"></div>
+              <span>{lang === 'zh' ? '生成中...' : 'Generating...'}</span>
+            </div>
+          {:else if status === 'error'}
+            <div class="error-badge">
+              <span>{lang === 'zh' ? '编译失败' : 'Failed'}</span>
+            </div>
+          {/if}
+          <button
+            class="btn btn-primary btn-sm"
+            onclick={downloadPdf}
+            disabled={!pdfBytes || status === 'compiling'}
+          >
+            {status === 'compiling' ? t('generating') : t('exportPdf')}
+          </button>
+        </div>
       </div>
       <CardGallery {pdfBytes} {status} {filename} {lang} columns={1} aspectRatio="16 / 9" fullResWidth={1920} thumbWidth={800} />
     </section>
@@ -1202,6 +1312,17 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .preview-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .preview-toolbar-right > .btn {
+    padding: calc(0.5rem - 1px) 0.875rem;
+    font-size: 0.8125rem;
   }
 
   .compiling-badge {

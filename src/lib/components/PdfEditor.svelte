@@ -16,12 +16,17 @@
   import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { PDF_TEMPLATES } from '$lib/templates/pdf-templates'
-  import { documentStore } from '$lib/stores/documentStore.svelte'
+  import {
+    documentStore,
+    isBrokenTemplateDocument,
+    isLegacyImplicitBlankDocument,
+  } from '$lib/stores/documentStore.svelte'
 
   import 'pdfjs-dist/web/pdf_viewer.css'
 
   import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist'
   import type { PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs'
+  import type { SavedDocument } from '$lib/storage/documents'
 
   // Props
   interface Props {
@@ -74,6 +79,11 @@
   }
   const { needRefresh, updateServiceWorker } = useRegisterSW(swOptions)
 
+  function applyLoadedDocument(doc: SavedDocument) {
+    markdown = doc.content
+    documentStore.finishDocumentTransition()
+  }
+
   $effect(() => {
     if (hasInitializedMarkdown) return
     if (!browser) return
@@ -86,30 +96,42 @@
         markdown = initialMarkdown
         return
       }
+      const pdfDocs = documentStore.recentDocuments.filter((d) => d.mode === 'pdf')
+      const invalidAutoDocs = pdfDocs.filter(
+        (doc) => isLegacyImplicitBlankDocument(doc) || isBrokenTemplateDocument(doc),
+      )
+      if (invalidAutoDocs.length > 0) {
+        for (const doc of invalidAutoDocs) {
+          await documentStore.deleteDocument(doc.id)
+        }
+      }
+      const usablePdfDocs = pdfDocs.filter(
+        (doc) => !isLegacyImplicitBlankDocument(doc) && !isBrokenTemplateDocument(doc),
+      )
       // Try loading current doc if it belongs to this mode
       if (documentStore.currentDocId) {
         const currentDoc = documentStore.recentDocuments.find((d) => d.id === documentStore.currentDocId)
-        if (currentDoc?.mode === 'pdf') {
-          const content = await documentStore.loadDocument(documentStore.currentDocId)
-          if (content !== null) {
-            markdown = content
+        if (currentDoc?.mode === 'pdf' && !isLegacyImplicitBlankDocument(currentDoc)) {
+          const doc = await documentStore.loadDocument(documentStore.currentDocId)
+          if (doc !== null) {
+            applyLoadedDocument(doc)
             return
           }
         }
       }
       // Check if there are recent PDF docs
-      const pdfDocs = documentStore.recentDocuments.filter((d) => d.mode === 'pdf')
-      if (pdfDocs.length > 0) {
-        const content = await documentStore.loadDocument(pdfDocs[0].id)
-        if (content !== null) {
-          markdown = content
+      if (usablePdfDocs.length > 0) {
+        const doc = await documentStore.loadDocument(usablePdfDocs[0].id)
+        if (doc !== null) {
+          applyLoadedDocument(doc)
           return
         }
       }
       // Create new doc from initial markdown or template
       const defaultContent = initialMarkdown || PDF_TEMPLATES[lang]?.[0]?.content || ''
-      const { content } = await documentStore.createDocument('pdf', defaultContent)
-      markdown = content
+      markdown = defaultContent
+      const doc = await documentStore.createDocument('pdf', defaultContent, undefined, 'template')
+      applyLoadedDocument(doc)
     })()
   })
 
@@ -449,6 +471,7 @@
   // Auto-save document to IndexedDB
   $effect(() => {
     if (!browser || !hasInitializedMarkdown || !documentStore.currentDocId) return
+    if (documentStore.isTransitioningDocument) return
     documentStore.autoSave(documentStore.currentDocId, markdown)
   })
 
@@ -1020,18 +1043,10 @@
         mode="pdf"
         templates={PDF_TEMPLATES[lang] || []}
         currentContent={markdown}
-        onDocumentLoad={(content) => { markdown = content }}
+        onDocumentLoad={(doc) => { applyLoadedDocument(doc) }}
       />
     </div>
     <div class="navbar-right">
-      <button
-        class="btn btn-primary btn-sm"
-        onclick={downloadPdf}
-        disabled={!pdfBytes || status === 'compiling'}
-      >
-        {status === 'compiling' ? t('generating') : t('export')}
-      </button>
-
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="menu-container" onclick={(e) => e.stopPropagation()}>
@@ -1244,16 +1259,25 @@
             </div>
           {/if}
         </div>
-        <div class="zoom">
-          <span class="zoom-level">{Math.round(pdfScale * 100)}%</span>
-          <button onclick={fitWidth} disabled={!pdfDoc}>Fit</button>
+        <div class="preview-toolbar-right">
+          <div class="zoom">
+            <span class="zoom-level">{Math.round(pdfScale * 100)}%</span>
+            <button onclick={fitWidth} disabled={!pdfDoc}>Fit</button>
+            <button
+              class="btn-icon-sm"
+              onclick={openPdfNewTab}
+              disabled={!pdfUrl || status === 'compiling'}
+              title={lang === 'zh' ? '在新标签页打开' : 'Open in new tab'}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            </button>
+          </div>
           <button
-            class="btn-icon-sm"
-            onclick={openPdfNewTab}
-            disabled={!pdfUrl || status === 'compiling'}
-            title={lang === 'zh' ? '在新标签页打开' : 'Open in new tab'}
+            class="btn btn-primary btn-sm"
+            onclick={downloadPdf}
+            disabled={!pdfBytes || status === 'compiling'}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            {status === 'compiling' ? t('generating') : t('export')}
           </button>
         </div>
       </div>
@@ -1597,6 +1621,17 @@
     padding: var(--space-sm) var(--space-md);
     background: var(--color-white);
     border-bottom: 1px solid var(--color-gray-200);
+  }
+
+  .preview-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .preview-toolbar-right > .btn {
+    padding: calc(0.5rem - 1px) 0.875rem;
+    font-size: 0.8125rem;
   }
 
   .pager,

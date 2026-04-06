@@ -13,7 +13,12 @@
   import CardGallery from '$lib/components/CardGallery.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { REDBOOK_TEMPLATES } from '$lib/templates/redbook-templates'
-  import { documentStore } from '$lib/stores/documentStore.svelte'
+  import {
+    documentStore,
+    isBrokenTemplateDocument,
+    isLegacyImplicitBlankDocument,
+  } from '$lib/stores/documentStore.svelte'
+  import type { SavedDocument } from '$lib/storage/documents'
   import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
 
   // Props
@@ -106,6 +111,11 @@
   let activeMobileTab = $state<'editor' | 'preview'>('editor')
   let isMenuOpen = $state(false)
 
+  function applyLoadedDocument(doc: SavedDocument) {
+    markdown = doc.content
+    documentStore.finishDocumentTransition()
+  }
+
   $effect(() => {
     if (hasInitializedMarkdown) return
     if (!browser) return
@@ -116,34 +126,46 @@
       const oldSaved = localStorage.getItem('mdxport-redbook-markdown')
       if (oldSaved && oldSaved.trim()) {
         localStorage.removeItem('mdxport-redbook-markdown')
-        const { content } = await documentStore.createDocument('redbook', oldSaved)
-        markdown = content
+        const doc = await documentStore.createDocument('redbook', oldSaved, undefined, 'import')
+        applyLoadedDocument(doc)
         return
       }
+      const redbookDocs = documentStore.recentDocuments.filter((d) => d.mode === 'redbook')
+      const invalidAutoDocs = redbookDocs.filter(
+        (doc) => isLegacyImplicitBlankDocument(doc) || isBrokenTemplateDocument(doc),
+      )
+      if (invalidAutoDocs.length > 0) {
+        for (const doc of invalidAutoDocs) {
+          await documentStore.deleteDocument(doc.id)
+        }
+      }
+      const usableRedbookDocs = redbookDocs.filter(
+        (doc) => !isLegacyImplicitBlankDocument(doc) && !isBrokenTemplateDocument(doc),
+      )
       // Try loading current doc if it belongs to this mode
       if (documentStore.currentDocId) {
         const currentDoc = documentStore.recentDocuments.find((d) => d.id === documentStore.currentDocId)
-        if (currentDoc?.mode === 'redbook') {
-          const content = await documentStore.loadDocument(documentStore.currentDocId)
-          if (content !== null) {
-            markdown = content
+        if (currentDoc?.mode === 'redbook' && !isLegacyImplicitBlankDocument(currentDoc)) {
+          const doc = await documentStore.loadDocument(documentStore.currentDocId)
+          if (doc !== null) {
+            applyLoadedDocument(doc)
             return
           }
         }
       }
       // Check recent redbook docs
-      const redbookDocs = documentStore.recentDocuments.filter((d) => d.mode === 'redbook')
-      if (redbookDocs.length > 0) {
-        const content = await documentStore.loadDocument(redbookDocs[0].id)
-        if (content !== null) {
-          markdown = content
+      if (usableRedbookDocs.length > 0) {
+        const doc = await documentStore.loadDocument(usableRedbookDocs[0].id)
+        if (doc !== null) {
+          applyLoadedDocument(doc)
           return
         }
       }
       // Create from template
       const defaultContent = REDBOOK_TEMPLATES[lang]?.[0]?.content ?? ''
-      const { content } = await documentStore.createDocument('redbook', defaultContent)
-      markdown = content
+      markdown = defaultContent
+      const doc = await documentStore.createDocument('redbook', defaultContent, undefined, 'template')
+      applyLoadedDocument(doc)
     })()
   })
 
@@ -249,6 +271,7 @@
   // Auto-save document to IndexedDB
   $effect(() => {
     if (!browser || !hasInitializedMarkdown || !documentStore.currentDocId) return
+    if (documentStore.isTransitioningDocument) return
     documentStore.autoSave(documentStore.currentDocId, markdown)
   })
 
@@ -706,18 +729,10 @@
         mode="redbook"
         templates={REDBOOK_TEMPLATES[lang] || []}
         currentContent={markdown}
-        onDocumentLoad={(content) => { markdown = content }}
+        onDocumentLoad={(doc) => { applyLoadedDocument(doc) }}
       />
     </div>
     <div class="navbar-right">
-      <button
-        class="btn btn-primary btn-sm"
-        onclick={downloadCards}
-        disabled={!pdfBytes || status === 'compiling'}
-      >
-        {status === 'compiling' ? t('generating') : t('exportCards')}
-      </button>
-
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="menu-container" onclick={(e) => e.stopPropagation()}>
@@ -750,6 +765,11 @@
             >
               <span class="menu-icon">🐙</span>
               GitHub
+            </a>
+
+            <a href="/{lang}/resources/" class="menu-item">
+              <span class="menu-icon">🛠️</span>
+              {lang === 'zh' ? '更多资源与工具' : 'Resources & Tools'}
             </a>
 
             <div class="menu-divider"></div>
@@ -916,16 +936,25 @@
             <option value={4}>4 {lang === 'zh' ? '列' : 'col'}</option>
           </select>
         </div>
-        {#if status === 'compiling'}
-          <div class="compiling-badge">
-            <div class="spinner-xs"></div>
-            <span>{lang === 'zh' ? '生成中...' : 'Generating...'}</span>
-          </div>
-        {:else if status === 'error'}
-          <div class="error-badge">
-            <span>{lang === 'zh' ? '编译失败' : 'Failed'}</span>
-          </div>
-        {/if}
+        <div class="preview-toolbar-right">
+          {#if status === 'compiling'}
+            <div class="compiling-badge">
+              <div class="spinner-xs"></div>
+              <span>{lang === 'zh' ? '生成中...' : 'Generating...'}</span>
+            </div>
+          {:else if status === 'error'}
+            <div class="error-badge">
+              <span>{lang === 'zh' ? '编译失败' : 'Failed'}</span>
+            </div>
+          {/if}
+          <button
+            class="btn btn-primary btn-sm"
+            onclick={downloadCards}
+            disabled={!pdfBytes || status === 'compiling'}
+          >
+            {status === 'compiling' ? t('generating') : t('exportCards')}
+          </button>
+        </div>
       </div>
       <CardGallery {pdfBytes} {status} {filename} {lang} columns={cardColumns} />
     </section>
@@ -1294,6 +1323,17 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .preview-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .preview-toolbar-right > .btn {
+    padding: calc(0.5rem - 1px) 0.875rem;
+    font-size: 0.8125rem;
   }
 
   .compiling-badge {
