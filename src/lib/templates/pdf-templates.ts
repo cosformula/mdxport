@@ -29,6 +29,12 @@ MDXport 旨在提供稳定的分页、尝试自动修复常见的格式错误并
 
 ---
 
+## 目录
+
+[toc]
+
+---
+
 ## 排版功能演示
 
 ### 文本格式
@@ -64,7 +70,7 @@ graph LR;
     Typst-->PDF;
 \`\`\`
 
-> **提示**：你可以将 Markdown 粘贴到编辑器，或使用顶部的模板快速开始。
+> **提示**：使用 \`---\` 或 \`[[pagebreak]]\` 控制分页。你可以将 Markdown 粘贴到编辑器，或使用顶部的模板快速开始。
 `;
 
 const WELCOME_EN = `---
@@ -84,6 +90,12 @@ MDXport aims for stable pagination, attempts to catch common formatting errors, 
 - **Active Preflight**: Detects & flags common math block issues, overflowing code, and bad nesting.
 - **Reproducible Output**: Same input + Pinned template/engine versions = Same PDF.
 - **Local-First Security**: Your commercial specs never leave your device.
+
+---
+
+## Table of Contents
+
+[toc]
 
 ---
 
@@ -121,7 +133,7 @@ graph LR;
     Typst-->PDF;
 \`\`\`
 
-> **Tip**: Paste Markdown into the editor, or use the templates above to get started.
+> **Tip**: Use \`---\` or \`[[pagebreak]]\` to control page breaks. Paste Markdown into the editor, or use the templates above to get started.
 `;
 
 const RESUME_ZH = `---

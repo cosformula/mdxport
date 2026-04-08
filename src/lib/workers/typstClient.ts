@@ -3,6 +3,7 @@ type CompileRequest = {
 	id: string;
 	mainTypst: string;
 	images?: Record<string, Uint8Array<ArrayBuffer>>;
+	format?: 'pdf' | 'vector';
 };
 
 type CompileResponse =
@@ -16,13 +17,26 @@ type CompileResponse =
 	| {
 			type: 'compile-result';
 			id: string;
+			ok: true;
+			vector: ArrayBuffer;
+			diagnostics: string[];
+	  }
+	| {
+			type: 'compile-result';
+			id: string;
 			ok: false;
 			error: string;
 			diagnostics: string[];
 	  };
 
+type CompileResult = {
+	pdf?: Uint8Array<ArrayBuffer>;
+	vector?: Uint8Array<ArrayBuffer>;
+	diagnostics: string[];
+};
+
 type Pending = {
-	resolve: (value: { pdf: Uint8Array<ArrayBuffer>; diagnostics: string[] }) => void;
+	resolve: (value: CompileResult) => void;
 	reject: (reason: unknown) => void;
 };
 
@@ -45,7 +59,10 @@ export class TypstWorkerClient {
 				return;
 			}
 
-			pending.resolve({ pdf: new Uint8Array(message.pdf), diagnostics: message.diagnostics });
+			const result: CompileResult = { diagnostics: message.diagnostics };
+			if ('pdf' in message) result.pdf = new Uint8Array(message.pdf);
+			if ('vector' in message) result.vector = new Uint8Array(message.vector);
+			pending.resolve(result);
 		});
 	}
 
@@ -61,8 +78,29 @@ export class TypstWorkerClient {
 		mainTypst: string,
 		images: Record<string, Uint8Array<ArrayBuffer>> = {}
 	): Promise<{ pdf: Uint8Array<ArrayBuffer>; diagnostics: string[] }> {
+		return this.#compile(mainTypst, images, 'pdf').then((r) => ({
+			pdf: r.pdf!,
+			diagnostics: r.diagnostics
+		}));
+	}
+
+	compileVector(
+		mainTypst: string,
+		images: Record<string, Uint8Array<ArrayBuffer>> = {}
+	): Promise<{ vector: Uint8Array<ArrayBuffer>; diagnostics: string[] }> {
+		return this.#compile(mainTypst, images, 'vector').then((r) => ({
+			vector: r.vector!,
+			diagnostics: r.diagnostics
+		}));
+	}
+
+	#compile(
+		mainTypst: string,
+		images: Record<string, Uint8Array<ArrayBuffer>>,
+		format: 'pdf' | 'vector'
+	): Promise<CompileResult> {
 		const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
-		const request: CompileRequest = { type: 'compile', id, mainTypst, images };
+		const request: CompileRequest = { type: 'compile', id, mainTypst, images, format };
 
 		return new Promise((resolve, reject) => {
 			this.#pending.set(id, { resolve, reject });

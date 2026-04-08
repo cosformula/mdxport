@@ -4,14 +4,15 @@
 
 - `src/routes/`：页面与布局（SvelteKit）。
   - `src/routes/+page.svelte`：语言选择与根路径跳转。
-  - `src/routes/[lang]/+page.svelte`：主界面（左侧 Markdown 编辑，右侧 PDF 预览）。
+  - `src/routes/[lang]/+page.svelte`：主界面（左侧 Markdown 编辑，右侧 SVG 预览）。
 - `src/lib/i18n/`：多语言与路由参数（如 `src/lib/i18n/lang.ts`）。
 - `src/lib/pipeline/`：转换管线（Markdown AST → Typst 文本），核心：`src/lib/pipeline/markdownToTypst.ts`。
 - `src/lib/typst/`：Typst 排版方案（模板化样式与正文解耦）。
   - `src/lib/typst/styles/modern-tech.typ`：现代科技风。
   - `src/lib/typst/styles/classic-editorial.typ`：经典阅读风。
 - `src/lib/workers/`：WASM/CPU 重任务（Typst 编译）放在 Worker 内，避免阻塞 UI。
-- `src/lib/pdf/`：PDF 预览基础封装（PDF.js + PDFViewer；避免浏览器内置预览侧边栏占位）。
+- `src/lib/typst/renderer.ts`：typst.ts SVG 渲染器懒加载封装。
+- `src/lib/typst/svg-utils.ts`：SVG 分页提取工具（从 typst.ts 复合 SVG 中按页提取独立 SVG）。
 - `docs/`：设计与计划（见 `docs/DESIGN.md`、`docs/ENG.md`、`docs/MVP_PLAN.md`）。
 
 ## 构建、测试与开发命令
@@ -25,7 +26,7 @@
 ## 代码风格与命名约定
 
 - 缩进：TypeScript/Svelte 统一 2 空格；避免混用 Tab（示例：`src/lib/pipeline/*`）。
-- 命名：TS 函数/变量用 `camelCase`；文件按职责命名（如 `typstClient.ts`、`pdfjs.ts`）。
+- 命名：TS 函数/变量用 `camelCase`；文件按职责命名（如 `typstClient.ts`、`renderer.ts`）。
 - 约束：保持“样式在 Typst 模板，正文仅内容”的模板化写法；避免在生成器里硬编码 `set/show`。排版优先改 `src/lib/typst/styles/*`，新增方案走 `MarkdownToTypstOptions.style`。
 - 浏览器边界：页面代码用 `$app/environment` 的 `browser` 或 `onMount` 保护浏览器 API；Typst/WASM 初始化放在 `src/lib/workers/*`。
 

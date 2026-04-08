@@ -19,7 +19,7 @@ MDXport 是一款基于 [Svelte](https://svelte.dev/) 和 [Typst](https://typst.
 ### 编辑体验
 
 - **双编辑模式** — 在代码编辑器和所见即所得富文本编辑器（基于 [Milkdown](https://milkdown.dev/)）之间自由切换。
-- **实时预览** — 编辑时同步实时预览渲染效果。
+- **实时预览** — 编辑时同步 SVG 实时预览，由 Typst 直接渲染，像素级精确。
 - **分页控制** — 使用 `[[pagebreak]]` 在所有模式中控制分页。
 - **图片上传** — 直接在文档中嵌入图片。
 
@@ -76,7 +76,7 @@ MDXport 是一款基于 [Svelte](https://svelte.dev/) 和 [Typst](https://typst.
 - **渲染引擎**: [Typst](https://typst.app/) (WASM)
 - **富文本编辑**: [Milkdown](https://milkdown.dev/) (Crepe)
 - **Markdown 处理**: [unified](https://unifiedjs.com/) 生态 (remark)
-- **PDF 预览**: [PDF.js](https://mozilla.github.io/pdf.js/)
+- **预览渲染**: [typst.ts](https://github.com/nicholasgasior/typst.ts) renderer (SVG)
 - **图标**: [Lucide](https://lucide.dev/) (SVG)
 
 ## 🔗 相关项目

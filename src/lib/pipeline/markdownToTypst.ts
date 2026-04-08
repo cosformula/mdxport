@@ -171,6 +171,84 @@ export function markdownToTypst(markdown: string, options: MarkdownToTypstOption
 	return [header.join('\n'), '', body, ''].join('\n');
 }
 
+/**
+ * Like markdownToTypst, but returns one complete Typst source per page.
+ * For cards/slides: each segment becomes an independent single-page document.
+ */
+export function markdownToTypstPages(markdown: string, options: MarkdownToTypstOptions = {}): string[] {
+	currentStyle = options.style ?? 'modern-tech';
+	currentSize = options.size ?? 'compact';
+	currentDensity = options.density ?? 'comfortable';
+	const isRedbookStyle = currentStyle.startsWith('redbook');
+	const normalizedMarkdown = injectExtraBlankLineTokens(markdown);
+
+	const processor = unified()
+		.use(remarkParse)
+		.use(remarkFrontmatter, ['yaml'])
+		.use(remarkGfm, { singleTilde: false })
+		.use(remarkMath)
+		.use(remarkPagebreakToken)
+		.use(remarkSupersub);
+
+	const parsedTree = processor.parse(normalizedMarkdown);
+	const tree = processor.runSync(parsedTree) as Root;
+	const definitions = collectDefinitions(tree);
+	const footnoteDefinitions = collectFootnotes(tree);
+	const frontmatter = parseFrontmatter(tree);
+	const { title: leadingTitle, index: leadingTitleIndex } = findLeadingH1(tree, definitions) ?? {
+		title: null,
+		index: null
+	};
+
+	const title = isRedbookStyle ? (options.title ?? '') : options.title ?? frontmatter.title ?? leadingTitle ?? '';
+	const authors = isRedbookStyle ? (options.authors ?? []) : options.authors ?? frontmatter.authors ?? [];
+	const lang = coerceLanguage(frontmatter.lang) ?? options.lang ?? 'zh';
+
+	// Filter out leading H1 if it matches the title (same as markdownToTypst)
+	const nodesForBody =
+		!isRedbookStyle && leadingTitleIndex !== null && normalizeText(title) === normalizeText(leadingTitle)
+			? tree.children.filter((_, index) => index !== leadingTitleIndex)
+			: tree.children;
+
+	const segments = splitSegments(nodesForBody);
+	const bodies = segments
+		.map((segment) => {
+			const rendered = segment.nodes
+				.map((node) => renderBlock(node as Content, 0, definitions, footnoteDefinitions))
+				.filter(isNonEmpty)
+				.join('\n\n');
+			if (rendered.trim() !== '') return rendered;
+			return segment.explicit ? '#v(1pt)' : '';
+		})
+		.filter((body) => body !== '');
+
+	// Build headers — first page includes title/authors, subsequent pages don't
+	// (slides templates generate a title page from the title parameter)
+	const styleId: TypstStyleId = options.style ?? 'modern-tech';
+	const template = STYLE_TO_TEMPLATE[styleId] ?? STYLE_TO_TEMPLATE['modern-tech'];
+	const font = options.font ?? 'sans';
+	const importLine = `#import "${template.path}": ${template.entry}`;
+
+	function buildHeader(includeTitle: boolean): string {
+		const showArgs = [
+			includeTitle && title ? `title: "${escapeTypstString(title)}"` : null,
+			includeTitle && authors.length ? `authors: ${renderTypstArray(authors.map((a) => `"${escapeTypstString(a)}"`))}` : null,
+			`lang: "${lang}"`,
+			font !== 'sans' ? `font: "${font}"` : null,
+			options.size && options.size !== 'compact' ? `size: "${options.size}"` : null,
+			options.density && options.density !== 'comfortable' ? `density: "${options.density}"` : null,
+			options.theme ? `theme: "${options.theme}"` : null,
+			isRedbookStyle && options.exportPreset ? `preset: "${options.exportPreset}"` : null,
+		]
+			.filter(isNonEmpty)
+			.join(', ');
+		const showLine = showArgs ? `#show: ${template.entry}.with(${showArgs})` : `#show: ${template.entry}`;
+		return [importLine, showLine].join('\n');
+	}
+
+	return bodies.map((body, i) => [buildHeader(i === 0), '', body, ''].join('\n'));
+}
+
 function renderSegmentedBody(
 	nodes: RenderableNode[],
 	definitions: Map<string, Definition>,

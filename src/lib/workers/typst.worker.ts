@@ -21,6 +21,7 @@ type CompileRequest = {
 	id: string;
 	mainTypst: string;
 	images?: Record<string, Uint8Array<ArrayBuffer>>;
+	format?: 'pdf' | 'vector';
 };
 
 type CompileResponse =
@@ -29,6 +30,13 @@ type CompileResponse =
 			id: string;
 			ok: true;
 			pdf: ArrayBuffer;
+			diagnostics: string[];
+	  }
+	| {
+			type: 'compile-result';
+			id: string;
+			ok: true;
+			vector: ArrayBuffer;
 			diagnostics: string[];
 	  }
 	| {
@@ -147,10 +155,11 @@ function getCompiler(): Promise<TypstCompiler> {
 	return compilerPromise;
 }
 
-async function compilePdf(
+async function compileTypst(
 	mainTypst: string,
-	images: Record<string, Uint8Array<ArrayBuffer>> = {}
-): Promise<{ pdf: Uint8Array; diagnostics: string[] }> {
+	images: Record<string, Uint8Array<ArrayBuffer>> = {},
+	format: 'pdf' | 'vector' = 'pdf'
+): Promise<{ result: Uint8Array; diagnostics: string[] }> {
 	// Check for special characters
 	const hasCjk = /[\u4e00-\u9fa5]/.test(mainTypst);
 	// Broad emoji detection regex
@@ -167,39 +176,34 @@ async function compilePdf(
 		compiler.mapShadow('/' + path, data);
 	}
 
-	const result = await compiler.compile({
+	const compileResult = await compiler.compile({
 		mainFilePath: '/main.typ',
-		format: 1,
+		format: format === 'pdf' ? 1 : 0,
 		diagnostics: 'unix'
 	});
 
-	const diagnostics = (result.diagnostics ?? []).map(String);
-	if (!result.result) {
+	const diagnostics = (compileResult.diagnostics ?? []).map(String);
+	if (!compileResult.result) {
 		throw new Error(diagnostics.join('\n') || 'Typst 编译失败（无诊断信息）');
 	}
 
-	return { pdf: result.result, diagnostics };
+	return { result: compileResult.result, diagnostics };
 }
 
 ctx.onmessage = (event: MessageEvent<CompileRequest>) => {
 	const message = event.data;
 	if (!message || message.type !== 'compile') return;
 
+	const fmt = message.format || 'pdf';
 	compileQueue = compileQueue.then(async () => {
 		try {
-			const { pdf, diagnostics } = await compilePdf(message.mainTypst, message.images);
-			const pdfCopy = new Uint8Array(pdf.length);
-			pdfCopy.set(pdf);
-			ctx.postMessage(
-				{
-					type: 'compile-result',
-					id: message.id,
-					ok: true,
-					pdf: pdfCopy.buffer,
-					diagnostics
-				} satisfies CompileResponse,
-				[pdfCopy.buffer]
-			);
+			const { result, diagnostics } = await compileTypst(message.mainTypst, message.images, fmt);
+			const copy = new Uint8Array(result.length);
+			copy.set(result);
+			const response: CompileResponse = fmt === 'pdf'
+				? { type: 'compile-result', id: message.id, ok: true, pdf: copy.buffer, diagnostics }
+				: { type: 'compile-result', id: message.id, ok: true, vector: copy.buffer, diagnostics };
+			ctx.postMessage(response, [copy.buffer]);
 		} catch (error) {
 			ctx.postMessage({
 				type: 'compile-result',

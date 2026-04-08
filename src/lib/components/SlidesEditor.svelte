@@ -2,8 +2,9 @@
   import { browser } from '$app/environment'
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
-  import { getPdfjs } from '$lib/pdf/pdfjs'
-  import { markdownToTypst } from '$lib/pipeline/markdownToTypst'
+  import { markdownToTypst, markdownToTypstPages } from '$lib/pipeline/markdownToTypst'
+  import { getTypstRenderer } from '$lib/typst/renderer'
+  import { extractFirstPageSvg } from '$lib/typst/svg-utils'
   import type { TypstStyleId } from '$lib/pipeline/markdownToTypst'
   import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
@@ -72,7 +73,16 @@
   // Compilation state
   let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
   let errorMessage: string | null = $state(null)
-  let pdfBytes = $state<Uint8Array | null>(null)
+  let pageSvgs = $state<string[] | null>(null)
+
+  // Cache for incremental per-page compilation
+  let cachedTypstSources: string[] = []
+  let cachedSvgs: string[] = []
+  let cachedImagesFingerprint = ''
+
+  // Cached full-document Typst source + images for PDF export
+  let lastCompiledFullTypst = ''
+  let lastCompiledImages: Record<string, Uint8Array> = {}
 
   // Loading state
   let isLoading = $state(true)
@@ -191,9 +201,6 @@
     let aborted = false
 
     void (async () => {
-      await getPdfjs()
-      if (aborted) return
-
       isLoading = false
 
       void compile(markdown, style, lang, font)
@@ -339,15 +346,47 @@
 
       Object.assign(images, collectReferencedImageAssets(processedMd))
 
-      const mainTypst = markdownToTypst(processedMd, {
+      // Cache full-document Typst for PDF export (with preprocessed mermaid + images)
+      lastCompiledFullTypst = markdownToTypst(processedMd, {
         style: nextStyle,
         lang: docLang,
         font: compileFont,
       })
-      // @ts-ignore
-      const pdfData = await client.compilePdf(mainTypst, images)
+      lastCompiledImages = images
+
+      const typstPages = markdownToTypstPages(processedMd, {
+        style: nextStyle,
+        lang: docLang,
+        font: compileFont,
+      })
+
+      // Incremental: only recompile pages whose Typst source or images changed
+      const renderer = await getTypstRenderer()
+      const imagesFingerprint = Object.keys(images).sort().join(',') + ':' +
+        Object.values(images).reduce((sum, v) => sum + v.length, 0)
+      const imagesChanged = imagesFingerprint !== cachedImagesFingerprint
+      const svgs = imagesChanged ? [] : [...cachedSvgs]
+
+      for (let i = 0; i < typstPages.length; i++) {
+        if (seq !== compileSeq) return
+        if (!imagesChanged && typstPages[i] === cachedTypstSources[i] && svgs[i]) continue
+
+        // @ts-ignore
+        const { vector } = await client.compileVector(typstPages[i], images)
+        await renderer.runWithSession(
+          { format: 'vector' as const, artifactContent: vector },
+          async (session) => {
+            svgs[i] = extractFirstPageSvg(await session.renderSvg({}))
+          },
+        )
+      }
       if (seq !== compileSeq) return
-      pdfBytes = pdfData.pdf
+
+      svgs.length = typstPages.length
+      cachedTypstSources = typstPages
+      cachedSvgs = svgs
+      cachedImagesFingerprint = imagesFingerprint
+      pageSvgs = [...svgs]
       status = 'done'
     } catch (error) {
       if (seq !== compileSeq) return
@@ -359,9 +398,11 @@
   // ========================================
   // Download PDF
   // ========================================
-  function downloadPdf() {
-    if (!pdfBytes) return
-    const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' })
+  async function downloadPdf() {
+    if (!client || !lastCompiledFullTypst) return
+    // @ts-ignore
+    const { pdf } = await client.compilePdf(lastCompiledFullTypst, lastCompiledImages)
+    const blob = new Blob([pdf], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -941,13 +982,13 @@
           <button
             class="btn btn-primary btn-sm"
             onclick={downloadPdf}
-            disabled={!pdfBytes || status === 'compiling'}
+            disabled={!pageSvgs || status === 'compiling'}
           >
             {status === 'compiling' ? t('generating') : t('exportPdf')}
           </button>
         </div>
       </div>
-      <CardGallery {pdfBytes} {status} {filename} {lang} columns={1} aspectRatio="16 / 9" fullResWidth={1920} thumbWidth={800} />
+      <CardGallery {pageSvgs} {status} {filename} {lang} columns={1} aspectRatio="16 / 9" fullResWidth={1920} thumbWidth={800} />
     </section>
   </main>
 </div>

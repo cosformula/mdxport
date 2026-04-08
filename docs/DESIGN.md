@@ -12,7 +12,7 @@ tags: [prd, markdown, export, pdf, client-only, typst, wasm, sveltekit, ai-doc]
 
 ## 0. 一句话
 
-MDXport 是一个纯前端静态站点：在浏览器里把 Markdown 转成 Typst，然后在 Web Worker 中用 Typst WASM 编译成 PDF，最后用 PDF.js 预览与下载。
+MDXport 是一个纯前端静态站点：在浏览器里把 Markdown 转成 Typst，然后在 Web Worker 中用 Typst WASM 编译为 vector IR，通过 typst.ts renderer 渲染为 SVG 预览；导出时按需编译 PDF 下载。
 
 > 本文把“已落地实现”与“路线图”分开写：**默认以代码现状为准**。
 
@@ -99,22 +99,25 @@ Markdown (string)
             - 注入 /main.typ 与图片 bytes（VFS）
             - compile → PDF bytes + diagnostics
 
-PDF bytes
-  ├─ Blob URL（下载/新标签页）
-  └─ PDF.js viewer（页码/缩放/链接）
+Vector IR
+  ├─ typst.ts renderer → SVG 预览（分页提取，每页独立 SVG）
+  └─ 导出时按需 compile PDF → Blob URL 下载
 ```
 
 ### 3.2 模块与职责（代码落点）
 
 - UI：
-  - `src/lib/components/MainEditor.svelte`：编辑器、编译触发（防抖+取消序列）、Mermaid 预处理、PDF.js viewer 初始化
+  - `src/lib/components/PdfEditor.svelte`：编辑器、编译触发（防抖+取消序列）、Mermaid 预处理、SVG 预览渲染
+  - `src/lib/components/CardsEditor.svelte`：卡片模式，逐页独立编译 + SVG 预览
+  - `src/lib/components/SlidesEditor.svelte`：演示文稿模式，逐页独立编译 + SVG 预览
 - Pipeline：
-  - `src/lib/pipeline/markdownToTypst.ts`：统一解析与渲染（`remark-parse` / `remark-gfm` / `remark-math` / 自定义 supersub）
+  - `src/lib/pipeline/markdownToTypst.ts`：统一解析与渲染；`markdownToTypstPages()` 支持逐页输出独立 Typst 源码
 - Worker：
-  - `src/lib/workers/typstClient.ts`：主线程调用封装（request/response + pending map）
-  - `src/lib/workers/typst.worker.ts`：WASM 初始化、字体加载、注入 typst 源与资源、编译队列
+  - `src/lib/workers/typstClient.ts`：主线程调用封装（`compilePdf` / `compileVector`）
+  - `src/lib/workers/typst.worker.ts`：WASM 初始化、字体加载、注入 typst 源与资源、编译队列（支持 PDF 和 vector 两种输出格式）
 - Preview：
-  - `src/lib/pdf/pdfjs.ts`：PDF.js 动态加载与 worker 配置
+  - `src/lib/typst/renderer.ts`：typst.ts SVG 渲染器懒加载封装
+  - `src/lib/typst/svg-utils.ts`：从复合 SVG 中按页提取独立 SVG
 - Typst 样式：
   - `src/lib/typst/styles/*`：风格化模板入口 `article(...)`
 

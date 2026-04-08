@@ -1,11 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { getPdfjs } from '$lib/pdf/pdfjs'
   import StatusHint from '$lib/components/StatusHint.svelte'
-  import type { PDFDocumentProxy } from 'pdfjs-dist'
 
   interface Props {
-    pdfBytes: Uint8Array | null
+    pageSvgs?: string[] | null
     status: 'idle' | 'compiling' | 'done' | 'error'
     filename: string
     lang: 'zh' | 'en'
@@ -15,7 +13,7 @@
     thumbWidth?: number
   }
 
-  let { pdfBytes, status, filename, lang, columns = 0, aspectRatio = '3 / 4', fullResWidth = 1242, thumbWidth = 400 }: Props = $props()
+  let { pageSvgs = null, status, filename, lang, columns = 0, aspectRatio = '3 / 4', fullResWidth = 1242, thumbWidth = 400 }: Props = $props()
 
   interface CardItem {
     pageNum: number
@@ -30,14 +28,21 @@
   let visibleRenderPage = $state<number | null>(null)
   let pendingTotalPages = $state(0)
   let renderSeq = 0
-  let currentDoc: PDFDocumentProxy | null = null
   let renderHintTimer: number | null = null
+  let hasEverReceived = $state(false)
 
-  // Render PDF pages to card images when pdfBytes changes
+  // Track when we first receive data
   $effect(() => {
-    const bytes = pdfBytes
+    if (pageSvgs && pageSvgs.length > 0) {
+      hasEverReceived = true
+    }
+  })
+
+  // Render pages when pageSvgs changes
+  $effect(() => {
+    const svgs = pageSvgs
     untrack(() => {
-      if (!bytes) {
+      if (!svgs?.length) {
         renderSeq += 1
         rendering = false
         activeRenderPage = null
@@ -49,7 +54,7 @@
 
       const seq = ++renderSeq
       rendering = true
-      renderPages(bytes, seq)
+      renderPagesFromSvgs(svgs, seq)
     })
   })
 
@@ -66,100 +71,46 @@
     visibleRenderPage = null
     pendingTotalPages = 0
     clearRenderHint()
-    if (currentDoc) {
-      currentDoc.destroy()
-      currentDoc = null
-    }
   }
 
-  async function renderPages(bytes: Uint8Array, seq: number) {
-    let doc: PDFDocumentProxy | null = null
-    try {
-      const pdfjs = await getPdfjs()
-      doc = await pdfjs.getDocument({ data: bytes.slice() }).promise
+  // Cached SVG strings for full-res rendering
+  let cachedPageSvgs: string[] = []
 
-      if (seq !== renderSeq) {
-        doc.destroy()
-        return
+  function renderPagesFromSvgs(svgs: string[], seq: number) {
+    cachedPageSvgs = svgs
+    pendingTotalPages = svgs.length
+
+    const previousCards = cards
+    const nextCards = [...previousCards]
+    const createdBlobUrls: string[] = []
+
+    for (let i = 0; i < svgs.length; i++) {
+      activeRenderPage = i + 1
+
+      // Escape bare & for strict XML parsing in <img>
+      const safeSvg = svgs[i].replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+      const blob = new Blob([safeSvg], { type: 'image/svg+xml;charset=utf-8' })
+      const hash = `svg-${i}-${safeSvg.length}`
+      const existing = nextCards[i]
+
+      if (existing && existing.pageNum === i + 1 && existing.hash === hash) {
+        continue
       }
 
-      const previousCards = cards
-      const previousDoc = currentDoc
-      const nextCards = [...previousCards]
-      const createdBlobUrls: string[] = []
-      pendingTotalPages = doc.numPages
+      const blobUrl = URL.createObjectURL(blob)
+      createdBlobUrls.push(blobUrl)
+      nextCards[i] = { pageNum: i + 1, blobUrl, blob, hash }
+      if (existing) URL.revokeObjectURL(existing.blobUrl)
+      cards = nextCards.slice(0, Math.max(previousCards.length, i + 1))
+    }
 
-      const dpr = window.devicePixelRatio || 1
-      const thumbPixelWidth = thumbWidth * dpr
-
-      for (let i = 1; i <= doc.numPages; i++) {
-        activeRenderPage = i
-        scheduleRenderHint(i, seq)
-        const page = await doc.getPage(i)
-        const baseVp = page.getViewport({ scale: 1 })
-        const scale = thumbPixelWidth / baseVp.width
-        const viewport = page.getViewport({ scale })
-
-        const canvas = document.createElement('canvas')
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-        const ctx = canvas.getContext('2d')!
-        await page.render({ canvasContext: ctx, canvas, viewport }).promise
-
-        if (seq !== renderSeq) {
-          for (const blobUrl of createdBlobUrls) {
-            URL.revokeObjectURL(blobUrl)
-          }
-          doc.destroy()
-          return
-        }
-
-        const blob = await new Promise<Blob>((resolve) =>
-          canvas.toBlob((b) => resolve(b!), 'image/png'),
-        )
-        const hash = await hashBlob(blob)
-        const existing = nextCards[i - 1]
-
-        if (
-          existing &&
-          existing.pageNum === i &&
-          existing.hash === hash
-        ) {
-          clearRenderHint(i)
-          continue
-        }
-
-        const blobUrl = URL.createObjectURL(blob)
-        createdBlobUrls.push(blobUrl)
-        nextCards[i - 1] = { pageNum: i, blobUrl, blob, hash }
-        if (existing) {
-          URL.revokeObjectURL(existing.blobUrl)
-        }
-        cards = nextCards.slice(0, Math.max(previousCards.length, i))
-        clearRenderHint(i)
-      }
-
-      if (seq === renderSeq) {
-        currentDoc = doc
-        const removedCards = nextCards.slice(doc.numPages)
-        revokeCards(removedCards)
-        cards = nextCards.slice(0, doc.numPages)
-        rendering = false
-        activeRenderPage = null
-        visibleRenderPage = null
-        pendingTotalPages = doc.numPages
-        clearRenderHint()
-        previousDoc?.destroy()
-      }
-    } catch {
-      doc?.destroy()
-      if (seq === renderSeq) {
-        rendering = false
-        activeRenderPage = null
-        visibleRenderPage = null
-        pendingTotalPages = cards.length
-        clearRenderHint()
-      }
+    if (seq === renderSeq) {
+      const removedCards = nextCards.slice(svgs.length)
+      revokeCards(removedCards)
+      cards = nextCards.slice(0, svgs.length)
+      rendering = false
+      activeRenderPage = null
+      visibleRenderPage = null
     }
   }
 
@@ -236,19 +187,29 @@
   }
 
   async function renderFullRes(pageNum: number): Promise<Blob | null> {
-    if (!currentDoc) return null
-    const page = await currentDoc.getPage(pageNum)
-    const baseVp = page.getViewport({ scale: 1 })
-    const scale = fullResWidth / baseVp.width
-    const viewport = page.getViewport({ scale })
-    const canvas = document.createElement('canvas')
-    canvas.width = viewport.width
-    canvas.height = viewport.height
-    const ctx = canvas.getContext('2d')!
-    await page.render({ canvasContext: ctx, canvas, viewport }).promise
-    return new Promise<Blob>((resolve) =>
-      canvas.toBlob((b) => resolve(b!), 'image/png'),
-    )
+    // SVG mode: render SVG → Image → Canvas at full resolution
+    if (cachedPageSvgs.length >= pageNum) {
+      const safeSvg = cachedPageSvgs[pageNum - 1].replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+      const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(safeSvg)
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image()
+        el.onload = () => resolve(el)
+        el.onerror = reject
+        el.src = dataUrl
+      })
+      const w = fullResWidth
+      const h = Math.round(w * img.naturalHeight / img.naturalWidth)
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, w, h)
+      return new Promise<Blob>((resolve) =>
+        canvas.toBlob((b) => resolve(b!), 'image/png'),
+      )
+    }
+
+    return null
   }
 
   async function hashBlob(blob: Blob): Promise<string> {
@@ -265,12 +226,12 @@
 </script>
 
 <div class="card-gallery">
-  {#if rendering && cards.length === 0}
+  {#if cards.length === 0 && (rendering || status === 'compiling' || !hasEverReceived)}
     <div class="card-gallery-placeholder">
       <div class="card-spinner"></div>
       <span>{lang === 'zh' ? '正在生成卡片...' : 'Generating cards...'}</span>
     </div>
-  {:else if cards.length === 0 && status !== 'compiling'}
+  {:else if cards.length === 0}
     <div class="card-gallery-placeholder">
       <span>{lang === 'zh' ? '编辑 Markdown 开始生成卡片' : 'Edit Markdown to generate cards'}</span>
     </div>

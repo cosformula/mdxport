@@ -2,8 +2,9 @@
   import { browser } from '$app/environment'
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
-  import { getPdfjs } from '$lib/pdf/pdfjs'
-  import { markdownToTypst } from '$lib/pipeline/markdownToTypst'
+  import { getTypstRenderer } from '$lib/typst/renderer'
+  import { extractFirstPageSvg } from '$lib/typst/svg-utils'
+  import { markdownToTypst, markdownToTypstPages } from '$lib/pipeline/markdownToTypst'
   import type { TypstStyleId } from '$lib/pipeline/markdownToTypst'
   import {
     DEFAULT_CARD_EXPORT_PRESET,
@@ -110,7 +111,12 @@
   // Compilation state
   let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
   let errorMessage: string | null = $state(null)
-  let pdfBytes = $state<Uint8Array | null>(null)
+  let pageSvgs = $state<string[] | null>(null)
+
+  // Cache for incremental per-page compilation
+  let cachedTypstSources: string[] = []
+  let cachedSvgs: string[] = []
+  let cachedImagesFingerprint = ''
 
   // Loading state
   let isLoading = $state(true)
@@ -251,10 +257,6 @@
     let aborted = false
 
     void (async () => {
-      // Wait for PDF.js to be ready (needed for card rendering)
-      await getPdfjs()
-      if (aborted) return
-
       isLoading = false
 
       // Trigger first compile
@@ -425,7 +427,7 @@
 
       Object.assign(images, collectReferencedImageAssets(processedMd))
 
-      const mainTypst = markdownToTypst(processedMd, {
+      const typstPages = markdownToTypstPages(processedMd, {
         style: nextStyle,
         lang: docLang,
         font: compileFont,
@@ -434,10 +436,35 @@
         theme: compileTheme,
         exportPreset: compileExportPreset,
       })
-      // @ts-ignore
-      const pdfData = await client.compilePdf(mainTypst, images)
+
+      // Incremental: only recompile pages whose Typst source or images changed
+      const renderer = await getTypstRenderer()
+      const imagesFingerprint = Object.keys(images).sort().join(',') + ':' +
+        Object.values(images).reduce((sum, v) => sum + v.length, 0)
+      const imagesChanged = imagesFingerprint !== cachedImagesFingerprint
+      const svgs = imagesChanged ? [] : [...cachedSvgs]
+
+      for (let i = 0; i < typstPages.length; i++) {
+        if (seq !== compileSeq) return
+        if (!imagesChanged && typstPages[i] === cachedTypstSources[i] && svgs[i]) continue
+
+        // @ts-ignore
+        const { vector } = await client.compileVector(typstPages[i], images)
+        await renderer.runWithSession(
+          { format: 'vector' as const, artifactContent: vector },
+          async (session) => {
+            svgs[i] = extractFirstPageSvg(await session.renderSvg({}))
+          },
+        )
+      }
       if (seq !== compileSeq) return
-      pdfBytes = pdfData.pdf
+
+      // Trim if pages were removed
+      svgs.length = typstPages.length
+      cachedTypstSources = typstPages
+      cachedSvgs = svgs
+      cachedImagesFingerprint = imagesFingerprint
+      pageSvgs = [...svgs]
       status = 'done'
     } catch (error) {
       if (seq !== compileSeq) return
@@ -450,31 +477,37 @@
   // Download cards using the active export preset resolution
   // ========================================
   async function downloadCards() {
-    if (!pdfBytes) return
+    if (!pageSvgs?.length) return
     const exportPreset = getCardExportPreset(cardExportPreset)
-    const pdfjs = await getPdfjs()
-    const doc = await pdfjs.getDocument({ data: pdfBytes.slice() }).promise
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i)
-      const baseVp = page.getViewport({ scale: 1 })
-      const scale = exportPreset.fullResWidth / baseVp.width
-      const viewport = page.getViewport({ scale })
+
+    for (let i = 0; i < pageSvgs.length; i++) {
+      const safeSvg = pageSvgs[i].replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+      const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(safeSvg)
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image()
+        el.onload = () => resolve(el)
+        el.onerror = reject
+        el.src = dataUrl
+      })
+
+      const w = exportPreset.fullResWidth
+      const h = Math.round(w * img.naturalHeight / img.naturalWidth)
       const canvas = document.createElement('canvas')
-      canvas.width = viewport.width
-      canvas.height = viewport.height
+      canvas.width = w
+      canvas.height = h
       const ctx = canvas.getContext('2d')!
-      await page.render({ canvasContext: ctx, canvas, viewport }).promise
+      ctx.drawImage(img, 0, 0, w, h)
+
       const blob = await new Promise<Blob>((resolve) =>
         canvas.toBlob((b) => resolve(b!), 'image/png'),
       )
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${filename}-${String(i).padStart(2, '0')}.png`
+      a.download = `${filename}-${String(i + 1).padStart(2, '0')}.png`
       a.click()
       URL.revokeObjectURL(url)
     }
-    doc.destroy()
   }
 
   function openImagePicker() {
@@ -1020,14 +1053,14 @@
           <button
             class="btn btn-primary btn-sm"
             onclick={downloadCards}
-            disabled={!pdfBytes || status === 'compiling'}
+            disabled={!pageSvgs || status === 'compiling'}
           >
             {status === 'compiling' ? t('generating') : t('exportCards')}
           </button>
         </div>
       </div>
       <CardGallery
-        {pdfBytes}
+        {pageSvgs}
         {status}
         {filename}
         {lang}

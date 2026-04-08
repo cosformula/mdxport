@@ -6,7 +6,7 @@ last_reviewed: 2025-12-18
 product_name: MDXport
 scope: engineering
 stack: sveltekit_adapter_static_prerender
-tags: [sveltekit, adapter-static, prerender, typst, wasm, worker, pdfjs, svelte5]
+tags: [sveltekit, adapter-static, prerender, typst, wasm, worker, typst-ts-renderer, svelte5]
 ---
 
 # MDXport 工程文档（以当前仓库实现为准）
@@ -60,13 +60,17 @@ src/
         +page.svelte
         +page.ts
   lib/
-    components/MainEditor.svelte     # 核心 UI：编辑/预览/导出/Mermaid 预处理
-    pipeline/markdownToTypst.ts      # Markdown(mdast) → Typst 源码
+    components/PdfEditor.svelte      # PDF 模式：编辑/SVG 预览/导出/Mermaid 预处理
+    components/CardsEditor.svelte    # 卡片模式：逐页编译 + SVG 预览
+    components/SlidesEditor.svelte   # 演示文稿模式：逐页编译 + SVG 预览
+    components/CardGallery.svelte    # 卡片/幻灯片画廊（SVG blob URL 显示）
+    pipeline/markdownToTypst.ts      # Markdown(mdast) → Typst 源码；markdownToTypstPages() 逐页输出
     pipeline/plugins/remark-simple-supersub.ts
-    workers/typstClient.ts           # Worker client（compilePdf）
-    workers/typst.worker.ts          # Typst(WASM) 编译（fonts + VFS + diagnostics）
-    typst/styles/*.typ               # Typst 风格模板（modern-tech / classic-editorial）
-    pdf/pdfjs.ts                     # PDF.js 动态加载与 worker 配置
+    workers/typstClient.ts           # Worker client（compilePdf / compileVector）
+    workers/typst.worker.ts          # Typst(WASM) 编译（fonts + VFS + diagnostics，支持 PDF/vector 格式）
+    typst/styles/*.typ               # Typst 风格模板（modern-tech / classic-editorial / redbook-* / slides-*）
+    typst/renderer.ts                # typst.ts SVG 渲染器懒加载封装
+    typst/svg-utils.ts               # SVG 分页提取（从复合 SVG 提取独立页面 SVG）
     mermaid/render.ts                # Mermaid → SVG bytes
     i18n/lang.ts                     # SUPPORTED_LANGS / isUILang
   hooks.client.ts                    # Analytics 注入（可选）
@@ -156,15 +160,15 @@ new Worker(new URL('./typst.worker.ts', import.meta.url), { type: 'module' });
 
 ---
 
-## 5. PDF 预览（PDF.js）
+## 5. SVG 预览（typst.ts renderer）
 
-实现：`src/lib/pdf/pdfjs.ts` + `MainEditor`
+实现：`src/lib/typst/renderer.ts` + `src/lib/typst/svg-utils.ts` + 各 Editor 组件
 
-- `getPdfjs()` 动态 import `pdfjs-dist`，并设置 `GlobalWorkerOptions.workerSrc`
-- viewer 侧使用 `pdfjs-dist/web/pdf_viewer.mjs` 的 `PDFViewer / PDFLinkService / EventBus`
-- 事件：
-  - `pagesinit`：默认 `page-width`
-  - `pagechanging/scalechanging`：同步 UI 状态
+- `getTypstRenderer()` 懒加载 `@myriaddreamin/typst-ts-renderer` WASM（~981KB），仅首次使用时加载
+- 预览流程：Typst 编译输出 vector IR（`format: 0`）→ `renderer.renderSvg()` 生成 SVG 字符串
+- PDF 模式（PdfEditor）：`extractPageSvgs()` 从复合 SVG 中按 `<g class="typst-page">` 提取独立页面 SVG，逐页显示
+- 卡片/幻灯片模式：`markdownToTypstPages()` 将 Markdown 按分页符拆分为独立 Typst 源码，逐页编译 + 渲染，增量更新（只重编变化的页）
+- PDF 导出：按需调用 `client.compilePdf()` 生成 PDF bytes 下载，不再用于预览
 
 ---
 

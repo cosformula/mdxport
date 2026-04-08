@@ -19,7 +19,7 @@ MDXport is a powerful Markdown export tool built with [Svelte](https://svelte.de
 ### Editing
 
 - **Dual Editor Modes** — Switch between a code editor and a WYSIWYG rich-text editor (powered by [Milkdown](https://milkdown.dev/)).
-- **Real-time Preview** — Live side-by-side preview as you type.
+- **Real-time Preview** — Live side-by-side SVG preview as you type, rendered directly from Typst with pixel-perfect accuracy.
 - **Page Breaks** — Use `[[pagebreak]]` to control pagination across all modes.
 - **Image Upload** — Embed images directly into your documents.
 
@@ -102,7 +102,7 @@ Visit [mdxport.com](https://mdxport.com) to start using it immediately.
 - **Typesetting**: [Typst](https://typst.app/) via WASM
 - **WYSIWYG Editor**: [Milkdown](https://milkdown.dev/) (Crepe)
 - **Markdown Handling**: [unified](https://unifiedjs.com/) ecosystem (remark)
-- **PDF Preview**: [PDF.js](https://mozilla.github.io/pdf.js/)
+- **Preview Rendering**: [typst.ts](https://github.com/nicholasgasior/typst.ts) renderer (SVG)
 - **Icons**: [Lucide](https://lucide.dev/) (via SVG)
 
 ## 🔗 Related Projects

@@ -2,7 +2,8 @@
   import { browser } from '$app/environment'
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
-  import { getPdfjs } from '$lib/pdf/pdfjs'
+  import { getTypstRenderer } from '$lib/typst/renderer'
+  import { extractPageSvgs } from '$lib/typst/svg-utils'
   import { markdownToTypst } from '$lib/pipeline/markdownToTypst'
   import { markdownToHtml } from '$lib/pipeline/markdownToHtml'
   import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
@@ -22,10 +23,6 @@
     isLegacyImplicitBlankDocument,
   } from '$lib/stores/documentStore.svelte'
 
-  import 'pdfjs-dist/web/pdf_viewer.css'
-
-  import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist'
-  import type { PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs'
   import type { SavedDocument } from '$lib/storage/documents'
 
   // Props
@@ -196,50 +193,29 @@
   // Compilation state
   let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
   let errorMessage: string | null = $state(null)
-  let pdfBytes = $state<Uint8Array | null>(null)
-  let pdfUrl = $state<string | null>(null)
-
   // Loading state
   let isLoading = $state(true)
   let loadingText = $state('Initializing...')
 
-  // PDF Viewer state
+  // Typst client
   let client = $state<TypstWorkerClient | null>(null)
-  let pdfDoc = $state<PDFDocumentProxy | null>(null)
-  let pdfPages = $state(0)
-  let pdfPage = $state(1)
-  let pdfScale = $state(1)
-  let pdfViewer = $state<PDFViewer | null>(null)
-  let pdfLinkService = $state<PDFLinkService | null>(null)
   let previewContainerEl = $state<HTMLDivElement | null>(null)
-  let pdfViewerContainerElA = $state<HTMLDivElement | null>(null)
-  let pdfViewerContainerElB = $state<HTMLDivElement | null>(null)
-  let pdfViewerElA = $state<HTMLDivElement | null>(null)
-  let pdfViewerElB = $state<HTMLDivElement | null>(null)
-  let pdfLoadTask: PDFDocumentLoadingTask | null = null
-  let pdfLoadSeq = 0
   let showPreviewCompilingHint = $state(false)
   let compilingHintTimer: number | null = null
-  let activePreviewSlot = $state<0 | 1>(0)
 
-  type ViewerRuntime = {
-    viewer: PDFViewer | null
-    linkService: PDFLinkService | null
-    eventBus: {
-      on: (name: string, cb: (event: any) => void) => void
-      off: (name: string, cb: (event: any) => void) => void
-    } | null
-    doc: PDFDocumentProxy | null
-  }
-
-  const viewerRuntimes: [ViewerRuntime, ViewerRuntime] = [
-    { viewer: null, linkService: null, eventBus: null, doc: null },
-    { viewer: null, linkService: null, eventBus: null, doc: null },
-  ]
+  // SVG preview state
+  let vectorBytes = $state<Uint8Array | null>(null)
+  let svgContainerEl = $state<HTMLDivElement | null>(null)
+  let svgPageCount = $state(0)
+  let svgScale = $state(1)
 
   // Auto-compile
   let compileSeq = 0
   let hasEverCompiled = false
+
+  // Cached last compiled Typst source + images for PDF export (same as preview)
+  let lastCompiledTypst = ''
+  let lastCompiledImages: Record<string, Uint8Array> = {}
   let autoPreviewTimer: number | null = null
 
   // UI Text
@@ -273,35 +249,6 @@
     return UI[lang][key]
   }
 
-  function getPreviewContainer(slot: 0 | 1): HTMLDivElement | null {
-    return slot === 0 ? pdfViewerContainerElA : pdfViewerContainerElB
-  }
-
-  function getPreviewViewer(slot: 0 | 1): HTMLDivElement | null {
-    return slot === 0 ? pdfViewerElA : pdfViewerElB
-  }
-
-  function getInactivePreviewSlot(): 0 | 1 {
-    return activePreviewSlot === 0 ? 1 : 0
-  }
-
-  function getActivePreviewContainer(): HTMLDivElement | null {
-    return getPreviewContainer(activePreviewSlot)
-  }
-
-  function waitForFirstRenderedPage(slot: 0 | 1): Promise<void> {
-    const eventBus = viewerRuntimes[slot].eventBus
-    if (!eventBus) return Promise.resolve()
-
-    return new Promise((resolve) => {
-      const onRendered = () => {
-        eventBus.off('pagerendered', onRendered)
-        resolve()
-      }
-      eventBus.on('pagerendered', onRendered)
-    })
-  }
-
   $effect(() => {
     if (!browser) return
 
@@ -312,7 +259,7 @@
 
     showPreviewCompilingHint = false
 
-    if (status === 'compiling' && !!pdfBytes) {
+    if (status === 'compiling' && !!vectorBytes) {
       compilingHintTimer = window.setTimeout(() => {
         showPreviewCompilingHint = true
       }, 180)
@@ -340,65 +287,9 @@
     loadingText = t('loading')
     client = getSharedTypstWorkerClient()
 
-    let aborted = false
-
-    void (async () => {
-      const containers: [HTMLDivElement | null, HTMLDivElement | null] = [
-        pdfViewerContainerElA,
-        pdfViewerContainerElB,
-      ]
-      const viewers: [HTMLDivElement | null, HTMLDivElement | null] = [
-        pdfViewerElA,
-        pdfViewerElB,
-      ]
-      if (containers.some((container) => !container) || viewers.some((viewer) => !viewer)) {
-        return
-      }
-
-      await getPdfjs()
-      const mod = await import('pdfjs-dist/web/pdf_viewer.mjs')
-      if (aborted) return
-
-      ;([0, 1] as const).forEach((slot) => {
-        const eventBus = new mod.EventBus()
-        const linkService = new mod.PDFLinkService({ eventBus })
-        const pdfViewerInstance = new mod.PDFViewer({
-          container: containers[slot]!,
-          viewer: viewers[slot]!,
-          eventBus,
-          linkService,
-        })
-        linkService.setViewer(pdfViewerInstance)
-
-        eventBus.on('pagesinit', () => {
-          pdfViewerInstance.currentScaleValue = 'page-width'
-        })
-        eventBus.on('pagechanging', (event: { pageNumber: number }) => {
-          if (slot !== activePreviewSlot) return
-          pdfPage = event.pageNumber
-        })
-        eventBus.on('scalechanging', (event: { scale: number }) => {
-          if (slot !== activePreviewSlot) return
-          pdfScale = event.scale
-        })
-
-        viewerRuntimes[slot].viewer = pdfViewerInstance
-        viewerRuntimes[slot].linkService = linkService
-        viewerRuntimes[slot].eventBus = eventBus
-      })
-
-      pdfLinkService = viewerRuntimes[activePreviewSlot].linkService
-      pdfViewer = viewerRuntimes[activePreviewSlot].viewer
-
-      // Hide loading overlay
-      isLoading = false
-
-      // Trigger first compile
-      void compile(markdown, style, lang)
-    })().catch((error) => {
-      console.error(error)
-      isLoading = false
-    })
+    // Hide loading overlay and trigger first compile
+    isLoading = false
+    void compile(markdown, style, lang)
 
     // Close menus on click outside
     const handleClickOutside = () => {
@@ -417,20 +308,12 @@
     window.addEventListener('resize', handleResize)
 
     return () => {
-      aborted = true
       window.removeEventListener('click', handleClickOutside)
       window.removeEventListener('resize', handleResize)
       if (resizeTimer) clearTimeout(resizeTimer)
       for (const asset of Object.values(imageAssets)) {
         URL.revokeObjectURL(asset.objectUrl)
       }
-      pdfLoadTask?.destroy()
-      for (const runtime of viewerRuntimes) {
-        void runtime.doc?.destroy()
-        runtime.doc = null
-      }
-      pdfDoc = null
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
     }
   })
 
@@ -461,7 +344,7 @@
     prevLang = currentLang
   })
 
-  // Persist style to localStorage
+  // Persist style and preview mode to localStorage
   $effect(() => {
     if (!browser) return
     localStorage.setItem('mdxport-style', style)
@@ -507,104 +390,54 @@
     }
   })
 
-  // PDF loading effect (pdfBytes -> pdfDoc)
+  // SVG rendering effect (vectorBytes -> SVG in container)
+  let svgRenderSeq = 0
   $effect(() => {
     if (!browser) return
-    const bytes = pdfBytes
-    if (!bytes) {
-      pdfLoadTask?.destroy()
-      for (const runtime of viewerRuntimes) {
-        void runtime.doc?.destroy()
-        runtime.doc = null
-      }
-      pdfDoc = null
-      pdfPages = 0
-      pdfPage = 1
-      pdfScale = 1
-      return
-    }
+    const bytes = vectorBytes
+    const container = svgContainerEl
+    if (!bytes || !container) return
 
-    const seq = ++pdfLoadSeq
+    const seq = ++svgRenderSeq
 
     void (async () => {
-      pdfLoadTask?.destroy()
+      const renderer = await getTypstRenderer()
+      if (seq !== svgRenderSeq) return
 
-      const pdfjs = await getPdfjs()
-      const task: PDFDocumentLoadingTask = pdfjs.getDocument({ data: bytes })
-      pdfLoadTask = task
+      const savedScrollTop = container.scrollTop
+      const prevScrollHeight = container.scrollHeight || 1
 
-      const doc: PDFDocumentProxy = await task.promise
-      if (seq !== pdfLoadSeq) {
-        void doc.destroy()
-        return
+      await renderer.runWithSession(
+        { format: 'vector' as const, artifactContent: bytes },
+        async (session) => {
+          const pages = session.retrievePagesInfo()
+          svgPageCount = pages.length
+          const svgString = await session.renderSvg({
+            data_selection: { body: true, defs: true, css: true, js: false },
+          })
+
+          // Extract per-page SVGs and render each independently
+          const perPageSvgs = extractPageSvgs(svgString)
+          container.innerHTML = perPageSvgs.join('\n')
+        },
+      )
+
+      if (seq !== svgRenderSeq) return
+
+      // Restore scroll position proportionally
+      if (prevScrollHeight > 1 && savedScrollTop > 0) {
+        const nextScrollHeight = container.scrollHeight
+        const ratio = savedScrollTop / prevScrollHeight
+        container.scrollTop = ratio * nextScrollHeight
       }
-
-      const nextSlot = getInactivePreviewSlot()
-      const previousSlot = activePreviewSlot
-      const nextRuntime = viewerRuntimes[nextSlot]
-      const previousRuntime = viewerRuntimes[previousSlot]
-
-      // Save scroll position from current active container
-      const prevContainer = previousSlot === 0 ? pdfViewerContainerElA : pdfViewerContainerElB
-      const savedScrollTop = prevContainer?.scrollTop ?? 0
-      const prevScrollHeight = prevContainer?.scrollHeight ?? 1
-
-      if (!nextRuntime.viewer || !nextRuntime.linkService) {
-        void doc.destroy()
-        return
-      }
-
-      void nextRuntime.doc?.destroy()
-      nextRuntime.doc = doc
-
-      nextRuntime.linkService.setDocument(doc)
-      nextRuntime.viewer.setDocument(doc)
-      await waitForFirstRenderedPage(nextSlot)
-
-      if (seq !== pdfLoadSeq) {
-        if (nextRuntime.doc === doc) {
-          nextRuntime.doc = null
-        }
-        void doc.destroy()
-        return
-      }
-
-      // Restore scroll position BEFORE swapping visibility to avoid flicker
-      const nextContainer = nextSlot === 0 ? pdfViewerContainerElA : pdfViewerContainerElB
-      if (nextContainer && prevScrollHeight > 0) {
-        const nextScrollHeight = nextContainer.scrollHeight
-        if (nextScrollHeight > 0) {
-          const scrollRatio = savedScrollTop / prevScrollHeight
-          nextContainer.scrollTop = scrollRatio * nextScrollHeight
-        }
-      }
-
-      // Now swap — the new container is already at the right scroll position
-      activePreviewSlot = nextSlot
-      pdfDoc = doc
-      pdfPages = doc.numPages
-      pdfLinkService = nextRuntime.linkService
-      pdfViewer = nextRuntime.viewer
-      const restoredPage = nextRuntime.viewer?.currentPageNumber ?? 1
-      pdfPage = Math.max(1, Math.min(restoredPage, doc.numPages))
-      void previousRuntime.doc?.destroy()
-      previousRuntime.doc = null
     })().catch((error) => {
-      console.error(error)
+      console.error('SVG render error:', error)
     })
   })
 
   // ========================================
   // Functions
   // ========================================
-  function goToPage(nextPage: number) {
-    if (!pdfDoc || !pdfViewer) return
-    const clamped = Math.max(1, Math.min(nextPage, pdfPages || 1))
-    if (clamped === pdfPage) return
-    pdfPage = clamped
-    pdfViewer.currentPageNumber = clamped
-  }
-
   async function compile(
     md: string,
     nextStyle: typeof style,
@@ -661,10 +494,13 @@
         lang: docLang,
         font: 'sans',
       })
+      lastCompiledTypst = mainTypst
+      lastCompiledImages = images
+
       // @ts-ignore
-      const pdfData = await client.compilePdf(mainTypst, images)
+      const vectorData = await client.compileVector(mainTypst, images)
       if (seq !== compileSeq) return
-      setPdfPreview(pdfData.pdf)
+      vectorBytes = vectorData.vector
       status = 'done'
     } catch (error) {
       if (seq !== compileSeq) return
@@ -673,24 +509,26 @@
     }
   }
 
-  function setPdfPreview(bytes: Uint8Array<ArrayBuffer>) {
-    pdfBytes = bytes
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl)
-    const blob = new Blob([bytes], { type: 'application/pdf' })
-    pdfUrl = URL.createObjectURL(blob)
-  }
-
-  function downloadPdf() {
-    if (!pdfUrl) return
+  async function downloadPdf() {
+    if (!client || !lastCompiledTypst) return
+    // @ts-ignore
+    const { pdf } = await client.compilePdf(lastCompiledTypst, lastCompiledImages)
+    const blob = new Blob([pdf], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = pdfUrl
+    a.href = url
     a.download = filename + '.pdf'
     a.click()
+    URL.revokeObjectURL(url)
   }
 
-  function openPdfNewTab() {
-    if (!pdfUrl) return
-    window.open(pdfUrl, '_blank')
+  async function openPdfNewTab() {
+    if (!client || !lastCompiledTypst) return
+    // @ts-ignore
+    const { pdf } = await client.compilePdf(lastCompiledTypst, lastCompiledImages)
+    const blob = new Blob([pdf], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank')
   }
 
   let fileInputEl = $state<HTMLInputElement | null>(null)
@@ -943,10 +781,15 @@
   }
 
   function fitWidth() {
-    const container = getActivePreviewContainer()
-    if (!pdfViewer || !container) return
-    if (container.offsetParent === null) return
-    pdfViewer.currentScaleValue = 'page-width'
+    svgScale = 1
+  }
+
+  function svgZoomIn() {
+    svgScale = Math.min(svgScale + 0.25, 3)
+  }
+
+  function svgZoomOut() {
+    svgScale = Math.max(svgScale - 0.25, 0.25)
   }
 
   // ResizeObserver for auto-fit
@@ -1069,7 +912,7 @@
             <button
               class="menu-item"
               onclick={() => { openPdfNewTab(); closeMenu() }}
-              disabled={!pdfUrl || status === 'compiling'}
+              disabled={status === 'compiling'}
             >
               <span class="menu-icon">🌐</span>
               {lang === 'zh' ? '在新页预览 PDF' : 'Preview PDF in New Tab'}
@@ -1242,17 +1085,7 @@
               <option value={s.id}>{s.label[lang]}</option>
             {/each}
           </select>
-          <div class="pager">
-            <button
-              onclick={() => goToPage(pdfPage - 1)}
-              disabled={!pdfDoc || pdfPage <= 1}>&larr;</button
-            >
-            <span class="page-info">{pdfPage} / {pdfPages || '—'}</span>
-            <button
-              onclick={() => goToPage(pdfPage + 1)}
-              disabled={!pdfDoc || pdfPage >= pdfPages}>&rarr;</button
-            >
-          </div>
+          <span class="page-info">{svgPageCount || '—'} {svgPageCount === 1 ? 'page' : 'pages'}</span>
           {#if status === 'error'}
             <div class="error-badge">
               <span>⚠️ {lang === 'zh' ? '编译失败' : 'Failed'}</span>
@@ -1261,21 +1094,23 @@
         </div>
         <div class="preview-toolbar-right">
           <div class="zoom">
-            <span class="zoom-level">{Math.round(pdfScale * 100)}%</span>
-            <button onclick={fitWidth} disabled={!pdfDoc}>Fit</button>
-            <button
-              class="btn-icon-sm"
-              onclick={openPdfNewTab}
-              disabled={!pdfUrl || status === 'compiling'}
-              title={lang === 'zh' ? '在新标签页打开' : 'Open in new tab'}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-            </button>
+            <button onclick={svgZoomOut} disabled={svgScale <= 0.25}>-</button>
+            <span class="zoom-level">{Math.round(svgScale * 100)}%</span>
+            <button onclick={svgZoomIn} disabled={svgScale >= 3}>+</button>
+            <button onclick={fitWidth} disabled={!vectorBytes}>Fit</button>
           </div>
+          <button
+            class="btn-icon-sm"
+            onclick={openPdfNewTab}
+            disabled={status === 'compiling'}
+            title={lang === 'zh' ? '在新标签页打开' : 'Open in new tab'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          </button>
           <button
             class="btn btn-primary btn-sm"
             onclick={downloadPdf}
-            disabled={!pdfBytes || status === 'compiling'}
+            disabled={!vectorBytes || status === 'compiling'}
           >
             {status === 'compiling' ? t('generating') : t('export')}
           </button>
@@ -1286,22 +1121,11 @@
           <StatusHint label={lang === 'zh' ? '更新预览中' : 'Updating preview'} />
         {/if}
         <div
-          class="pdfjs-container"
-          class:active={activePreviewSlot === 0}
-          class:inactive={activePreviewSlot !== 0}
-          bind:this={pdfViewerContainerElA}
-        >
-          <div class="pdfViewer" bind:this={pdfViewerElA}></div>
-        </div>
-        <div
-          class="pdfjs-container"
-          class:active={activePreviewSlot === 1}
-          class:inactive={activePreviewSlot !== 1}
-          bind:this={pdfViewerContainerElB}
-        >
-          <div class="pdfViewer" bind:this={pdfViewerElB}></div>
-        </div>
-        {#if status === 'compiling' && !pdfBytes}
+          class="svg-preview-container"
+          style="--svg-scale: {svgScale}"
+          bind:this={svgContainerEl}
+        ></div>
+        {#if status === 'compiling' && !vectorBytes}
           <div class="preview-placeholder">
             <div class="loading-spinner"></div>
           </div>
@@ -1634,14 +1458,12 @@
     font-size: 0.8125rem;
   }
 
-  .pager,
   .zoom {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
   }
 
-  .pager button,
   .zoom button {
     padding: var(--space-xs) var(--space-sm);
     font-size: 0.75rem;
@@ -1651,7 +1473,6 @@
     cursor: pointer;
   }
 
-  .pager button:disabled,
   .zoom button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -1731,26 +1552,6 @@
     }
   }
 
-  .pdfjs-container {
-    position: absolute;
-    inset: 0;
-    overflow: auto;
-    padding: var(--space-lg);
-    transition: opacity 0.18s ease-out;
-  }
-
-  .pdfjs-container.active {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-  }
-
-  .pdfjs-container.inactive {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-  }
-
   .preview-placeholder {
     position: absolute;
     inset: 0;
@@ -1760,10 +1561,22 @@
     background: var(--preview-bg);
   }
 
-  /* PDF Viewer Overrides */
-  :global(.pdfViewer .page) {
+  /* SVG Preview */
+  .svg-preview-container {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    padding: var(--space-lg);
+    background: var(--preview-bg);
+  }
+
+  .svg-preview-container :global(svg) {
+    display: block;
     margin: 0 auto var(--space-md);
     box-shadow: var(--paper-shadow);
+    background: white;
+    width: calc(100% * var(--svg-scale, 1));
+    height: auto;
   }
 
   /* ========================================

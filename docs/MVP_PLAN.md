@@ -19,7 +19,7 @@
 - Markdown（mdast）→ Typst 源码：`src/lib/pipeline/markdownToTypst.ts`
 - Typst(WASM) 编译（Worker）：`src/lib/workers/typst.worker.ts`
 - 主线程封装：`src/lib/workers/typstClient.ts`
-- PDF 预览（PDF.js viewer）：`src/lib/pdf/pdfjs.ts` + `src/lib/components/MainEditor.svelte`
+- SVG 预览（typst.ts renderer）：`src/lib/typst/renderer.ts` + `src/lib/typst/svg-utils.ts`
 
 ### 路由与静态部署
 
