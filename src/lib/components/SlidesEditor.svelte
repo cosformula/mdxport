@@ -9,8 +9,8 @@
   import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
-  import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
-  import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
+  import { getMarkdownImportFile, getImageDropFile } from '$lib/utils/image-utils'
+  import EditorPane from '$lib/components/EditorPane.svelte'
   import CardGallery from '$lib/components/CardGallery.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { SLIDES_TEMPLATES } from '$lib/templates/slides-templates'
@@ -35,9 +35,7 @@
   // ========================================
   let markdown = $state('')
   let hasInitializedMarkdown = false
-  let markdownEditor = $state<MarkdownEditor | null>(null)
-  let wysiwygEditor = $state<WysiwygEditor | null>(null)
-  let imageInput = $state<HTMLInputElement | null>(null)
+  let editorPane = $state<EditorPane | null>(null)
 
   let leftPaneWidth = $state(50)
   let isResizing = $state(false)
@@ -52,9 +50,6 @@
   let imageAssets = $state<Record<string, LocalImageAsset>>({})
   let persistedImageAssets = $derived.by(() => buildDocumentAssets(imageAssets))
 
-  let editorMode = $state<'code' | 'wysiwyg'>(
-    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'wysiwyg',
-  )
 
   let style = $state<'slides-modern' | 'slides-dark' | 'slides-minimal'>(
     (browser &&
@@ -229,7 +224,6 @@
     if (!browser) return
     localStorage.setItem('mdxport-slides-style', style)
     localStorage.setItem('mdxport-slides-font', font)
-    localStorage.setItem('mdxport-editor-mode', editorMode)
   })
 
   // Auto-save document to IndexedDB
@@ -411,56 +405,8 @@
     URL.revokeObjectURL(url)
   }
 
-  function openImagePicker() {
-    imageInput?.click()
-  }
-
-  function insertPageBreak() {
-    const insertion = `\n\n---\n\n`
-    if (editorMode === 'code' && markdownEditor?.insertTextAtSelection(insertion)) {
-      return
-    }
-    if (editorMode === 'wysiwyg' && wysiwygEditor?.insertMarkdownAtSelection(insertion)) {
-      return
-    }
-
-    const trimmed = markdown.trimEnd()
-    markdown = trimmed
-      ? `${trimmed}${insertion}`
-      : `---\n\n`
-  }
-
-  function getImageExtension(file: File): string {
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (ext && /^[a-z0-9]+$/.test(ext)) return ext
-    switch (file.type) {
-      case 'image/jpeg':
-        return 'jpg'
-      case 'image/png':
-        return 'png'
-      case 'image/webp':
-        return 'webp'
-      case 'image/svg+xml':
-        return 'svg'
-      case 'image/gif':
-        return 'gif'
-      default:
-        return 'png'
-    }
-  }
-
-  function getImageAltText(file: File): string {
-    return file.name.replace(/\.[^.]+$/, '').trim() || 'Image'
-  }
-
-  function escapeMarkdownImageAlt(text: string): string {
-    return text.replace(/[[\]\\]/g, '\\$&')
-  }
-
-  function createAssetId(): string {
-    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : String(Date.now())
+  function handleImageSaved(path: string, bytes: Uint8Array, objectUrl: string, mimeType: string) {
+    imageAssets[path] = { bytes, mimeType, objectUrl }
   }
 
   function buildDocumentAssets(
@@ -513,40 +459,6 @@
     documentStore.finishDocumentTransition()
   }
 
-  async function saveLocalImage(file: File): Promise<string> {
-    if (!file.type.startsWith('image/')) {
-      throw new Error(lang === 'zh' ? '仅支持图片文件' : 'Only image files are supported')
-    }
-
-    const path = `images/${createAssetId()}.${getImageExtension(file)}`
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    const objectUrl = URL.createObjectURL(file)
-
-    imageAssets[path] = {
-      bytes,
-      mimeType: file.type || 'application/octet-stream',
-      objectUrl,
-    }
-
-    return path
-  }
-
-  function resolveImageUrl(path: string): string {
-    return imageAssets[path]?.objectUrl ?? path
-  }
-
-  function insertMarkdownSnippet(snippet: string): void {
-    if (editorMode === 'code' && markdownEditor?.insertTextAtSelection(snippet)) {
-      return
-    }
-    if (editorMode === 'wysiwyg' && wysiwygEditor?.insertMarkdownAtSelection(snippet)) {
-      return
-    }
-
-    const trimmed = markdown.trimEnd()
-    markdown = trimmed ? `${trimmed}${snippet}` : snippet.trimStart()
-  }
-
   function collectReferencedImageAssets(md: string): Record<string, Uint8Array> {
     const referenced = new Set<string>()
     const markdownImageRegex = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
@@ -561,25 +473,6 @@
     return Object.fromEntries(
       [...referenced].map((path) => [path, imageAssets[path].bytes]),
     )
-  }
-
-  async function insertImageFile(file: File): Promise<void> {
-    try {
-      const path = await saveLocalImage(file)
-      const alt = escapeMarkdownImageAlt(getImageAltText(file))
-      insertMarkdownSnippet(`\n\n![${alt}](${path})\n\n`)
-      errorMessage = null
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error)
-    }
-  }
-
-  async function handleImageInputChange(e: Event) {
-    const target = e.target as HTMLInputElement
-    const file = target.files?.[0]
-    target.value = ''
-    if (!file) return
-    await insertImageFile(file)
   }
 
   // ========================================
@@ -641,26 +534,6 @@
     return e.dataTransfer?.types?.includes('Files') ?? false
   }
 
-  function getMarkdownImportFile(files: FileList): File | null {
-    for (const file of files) {
-      if (
-        file.name.endsWith('.md') ||
-        file.name.endsWith('.markdown') ||
-        file.name.endsWith('.txt')
-      ) {
-        return file
-      }
-    }
-    return null
-  }
-
-  function getImageDropFile(files: FileList): File | null {
-    for (const file of files) {
-      if (file.type.startsWith('image/')) return file
-    }
-    return null
-  }
-
   function handleDragOver(e: DragEvent) {
     if (!hasFiles(e)) return
     e.preventDefault()
@@ -696,7 +569,7 @@
 
     const imageFile = getImageDropFile(files)
     if (imageFile) {
-      void insertImageFile(imageFile)
+      void editorPane?.insertImageFile(imageFile)
     }
   }
 
@@ -709,7 +582,7 @@
       const file = item.getAsFile()
       if (!file) continue
       e.preventDefault()
-      await insertImageFile(file)
+      await editorPane?.insertImageFile(file)
       return
     }
   }
@@ -855,69 +728,19 @@
       class:mobile-hidden={activeMobileTab !== 'editor'}
       style="width: {leftPaneWidth}%"
     >
-      <div class="editor-toolbar">
-        <div class="editor-toolbar-left">
-          <div class="editor-mode-toggle">
-            <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
-              {lang === 'zh' ? '编辑' : 'Edit'}
-            </button>
-            <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
-              {lang === 'zh' ? '源码' : 'Code'}
-            </button>
-          </div>
-          <div class="toolbar-divider"></div>
-          <button class="toolbar-icon-btn" onclick={insertPageBreak} title={lang === 'zh' ? '插入新幻灯片' : 'Insert new slide'}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="2" y1="12" x2="6" y2="12"></line>
-              <line x1="18" y1="12" x2="22" y2="12"></line>
-              <path d="M6 8V4h12v4"></path>
-              <path d="M6 16v4h12v-4"></path>
-            </svg>
-            {lang === 'zh' ? '新页' : 'New Slide'}
-          </button>
-          <button class="toolbar-icon-btn" onclick={openImagePicker} title={lang === 'zh' ? '插入图片' : 'Insert image'}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="16" rx="2" ry="2"></rect>
-              <circle cx="8.5" cy="9.5" r="1.5"></circle>
-              <path d="M21 15l-5-5L5 20"></path>
-            </svg>
-            {lang === 'zh' ? '图片' : 'Image'}
-          </button>
-        </div>
-        <div class="editor-toolbar-right"></div>
-      </div>
-      <input
-        bind:this={imageInput}
-        class="sr-only"
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
-        onchange={handleImageInputChange}
+      <EditorPane
+        bind:this={editorPane}
+        bind:markdown
+        {lang}
+        placeholder={t('placeholder')}
+        cardMode
+        {errorMessage}
+        pageBreakToken="---"
+        pageBreakLabel={{ zh: '新页', en: 'New Slide' }}
+        pageBreakTitle={{ zh: '插入新幻灯片', en: 'Insert new slide' }}
+        {imageAssets}
+        onImageSaved={handleImageSaved}
       />
-      {#if editorMode === 'wysiwyg'}
-        <WysiwygEditor
-          bind:this={wysiwygEditor}
-          bind:markdown
-          placeholder={t('placeholder')}
-          cardMode
-          imageUpload={saveLocalImage}
-          resolveImageUrl={resolveImageUrl}
-        />
-      {:else}
-        <MarkdownEditor bind:this={markdownEditor} bind:markdown placeholder={t('placeholder')} />
-      {/if}
-      {#if errorMessage}
-        <div class="error-bar">{errorMessage}</div>
-      {/if}
-      <div class="drop-hint">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-        {lang === 'zh'
-          ? '拖入 .md / .txt 导入，或拖拽 / 粘贴图片插入'
-          : 'Drop .md / .txt to import, or drag / paste images to insert'}
-      </div>
     </section>
 
     <!-- Resizer -->
@@ -1002,18 +825,6 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
 
   .drop-overlay {
@@ -1234,103 +1045,6 @@
   .editor-pane {
     background: var(--editor-bg);
     position: relative;
-  }
-
-  .editor-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px;
-    background: var(--color-gray-50, #f9fafb);
-    border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
-    flex-shrink: 0;
-    gap: 6px;
-  }
-
-  .editor-toolbar-left {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .editor-toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .toolbar-divider {
-    width: 1px;
-    height: 16px;
-    background: var(--color-gray-200, #e5e7eb);
-    flex-shrink: 0;
-  }
-
-  .editor-mode-toggle {
-    display: flex;
-    background: var(--color-gray-200, #e5e7eb);
-    border-radius: var(--radius-sm, 4px);
-    padding: 1px;
-    gap: 1px;
-  }
-
-  .mode-toggle-btn {
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 3px 10px;
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
-    color: var(--color-gray-500, #6b7280);
-    background: transparent;
-    transition: all 0.15s;
-  }
-
-  .mode-toggle-btn.active {
-    background: var(--color-white, #fff);
-    color: var(--color-gray-900, #111);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-  }
-
-  .toolbar-icon-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 3px 8px;
-    border: none;
-    border-radius: var(--radius-sm, 4px);
-    cursor: pointer;
-    color: var(--color-gray-500, #6b7280);
-    background: transparent;
-    transition: all 0.15s;
-  }
-
-  .toolbar-icon-btn:hover {
-    background: var(--color-gray-200, #e5e7eb);
-    color: var(--color-gray-700, #374151);
-  }
-
-  .error-bar {
-    padding: var(--space-sm) var(--space-md);
-    font-size: 0.75rem;
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
-    border-top: 1px solid rgba(239, 68, 68, 0.2);
-  }
-
-  .drop-hint {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 6px;
-    font-size: 0.6875rem;
-    color: var(--color-gray-400, #9ca3af);
-    border-top: 1px solid var(--color-gray-100, #f3f4f6);
-    background: var(--color-gray-50, #f9fafb);
-    flex-shrink: 0;
   }
 
   .preview-pane {

@@ -9,12 +9,13 @@
   import { getSharedTypstWorkerClient, TypstWorkerClient } from '$lib/workers/typstClient'
   import type { UILang } from '$lib/i18n/lang'
   import { renderMermaidToSvg } from '$lib/mermaid/render'
+  import { getMarkdownImportFile, getImageDropFile } from '$lib/utils/image-utils'
+  import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
   import { useRegisterSW } from 'virtual:pwa-register/svelte'
   import type { RegisterSWOptions } from 'virtual:pwa-register/svelte'
 
-  import MarkdownEditor from '$lib/components/MarkdownEditor.svelte'
   import StatusHint from '$lib/components/StatusHint.svelte'
-  import WysiwygEditor from '$lib/components/WysiwygEditor.svelte'
+  import EditorPane from '$lib/components/EditorPane.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { PDF_TEMPLATES } from '$lib/templates/pdf-templates'
   import {
@@ -45,9 +46,7 @@
   // ========================================
   let markdown = $state('')
   let hasInitializedMarkdown = false
-  let markdownEditor = $state<MarkdownEditor | null>(null)
-  let wysiwygEditor = $state<WysiwygEditor | null>(null)
-  let imageInputEl = $state<HTMLInputElement | null>(null)
+  let editorPane = $state<EditorPane | null>(null)
 
   type LocalImageAsset = {
     bytes: Uint8Array
@@ -137,9 +136,6 @@
   let isResizing = $state(false)
   let isDragging = $state(false)
 
-  let editorMode = $state<'code' | 'wysiwyg'>(
-    (browser && (localStorage.getItem('mdxport-editor-mode') as 'code' | 'wysiwyg')) || 'wysiwyg',
-  )
 
   // Style state (PDF only — no redbook styles)
   let style = $state(
@@ -348,7 +344,6 @@
   $effect(() => {
     if (!browser) return
     localStorage.setItem('mdxport-style', style)
-    localStorage.setItem('mdxport-editor-mode', editorMode)
   })
 
   // Auto-save document to IndexedDB
@@ -537,10 +532,6 @@
     fileInputEl?.click()
   }
 
-  function handleOpenImage() {
-    imageInputEl?.click()
-  }
-
   function onFileSelected(e: Event) {
     const target = e.target as HTMLInputElement
     const files = target.files
@@ -560,90 +551,8 @@
     target.value = ''
   }
 
-  function getMarkdownImportFile(files: FileList): File | null {
-    for (const file of files) {
-      if (
-        file.name.endsWith('.md') ||
-        file.name.endsWith('.markdown') ||
-        file.name.endsWith('.txt')
-      ) {
-        return file
-      }
-    }
-    return null
-  }
-
-  function getImageDropFile(files: FileList): File | null {
-    for (const file of files) {
-      if (file.type.startsWith('image/')) return file
-    }
-    return null
-  }
-
-  function getImageExtension(file: File): string {
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (ext && /^[a-z0-9]+$/.test(ext)) return ext
-    switch (file.type) {
-      case 'image/jpeg':
-        return 'jpg'
-      case 'image/png':
-        return 'png'
-      case 'image/webp':
-        return 'webp'
-      case 'image/svg+xml':
-        return 'svg'
-      case 'image/gif':
-        return 'gif'
-      default:
-        return 'png'
-    }
-  }
-
-  function getImageAltText(file: File): string {
-    return file.name.replace(/\.[^.]+$/, '').trim() || 'Image'
-  }
-
-  function escapeMarkdownImageAlt(text: string): string {
-    return text.replace(/[[\]\\]/g, '\\$&')
-  }
-
-  function createAssetId(): string {
-    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : String(Date.now())
-  }
-
-  async function saveLocalImage(file: File): Promise<string> {
-    if (!file.type.startsWith('image/')) {
-      throw new Error(lang === 'zh' ? '仅支持图片文件' : 'Only image files are supported')
-    }
-
-    const path = `images/${createAssetId()}.${getImageExtension(file)}`
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    const objectUrl = URL.createObjectURL(file)
-
-    imageAssets[path] = {
-      bytes,
-      objectUrl,
-    }
-
-    return path
-  }
-
-  function resolveImageUrl(path: string): string {
-    return imageAssets[path]?.objectUrl ?? path
-  }
-
-  function insertMarkdownSnippet(snippet: string): void {
-    if (editorMode === 'code' && markdownEditor?.insertTextAtSelection(snippet)) {
-      return
-    }
-    if (editorMode === 'wysiwyg' && wysiwygEditor?.insertMarkdownAtSelection(snippet)) {
-      return
-    }
-
-    const trimmed = markdown.trimEnd()
-    markdown = trimmed ? `${trimmed}${snippet}` : snippet.trimStart()
+  function handleImageSaved(path: string, bytes: Uint8Array, objectUrl: string, _mimeType: string) {
+    imageAssets[path] = { bytes, objectUrl }
   }
 
   function collectReferencedImageAssets(md: string): Record<string, Uint8Array> {
@@ -660,25 +569,6 @@
     return Object.fromEntries(
       [...referenced].map((path) => [path, imageAssets[path].bytes]),
     )
-  }
-
-  async function insertImageFile(file: File): Promise<void> {
-    try {
-      const path = await saveLocalImage(file)
-      const alt = escapeMarkdownImageAlt(getImageAltText(file))
-      insertMarkdownSnippet(`\n\n![${alt}](${path})\n\n`)
-      errorMessage = null
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error)
-    }
-  }
-
-  async function onImageSelected(e: Event) {
-    const target = e.target as HTMLInputElement
-    const file = target.files?.[0]
-    target.value = ''
-    if (!file) return
-    await insertImageFile(file)
   }
 
   function handleHelp() {
@@ -762,7 +652,7 @@
 
     const imageFile = getImageDropFile(files)
     if (imageFile) {
-      void insertImageFile(imageFile)
+      void editorPane?.insertImageFile(imageFile)
     }
   }
 
@@ -775,7 +665,7 @@
       const file = item.getAsFile()
       if (!file) continue
       e.preventDefault()
-      await insertImageFile(file)
+      await editorPane?.insertImageFile(file)
       return
     }
   }
@@ -861,13 +751,6 @@
     style="display: none;"
     bind:this={fileInputEl}
     onchange={onFileSelected}
-  />
-  <input
-    type="file"
-    accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
-    class="sr-only"
-    bind:this={imageInputEl}
-    onchange={onImageSelected}
   />
 
   <!-- Navbar -->
@@ -991,55 +874,19 @@
       class:mobile-hidden={activeMobileTab !== 'editor'}
       style="width: {leftPaneWidth}%"
     >
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="editor-toolbar">
-        <div class="editor-toolbar-left">
-          <div class="editor-mode-toggle">
-            <button class="mode-toggle-btn" class:active={editorMode === 'wysiwyg'} onclick={() => editorMode = 'wysiwyg'}>
-              {lang === 'zh' ? '编辑' : 'Edit'}
-            </button>
-            <button class="mode-toggle-btn" class:active={editorMode === 'code'} onclick={() => editorMode = 'code'}>
-              {lang === 'zh' ? '源码' : 'Code'}
-            </button>
-          </div>
-          <div class="toolbar-divider"></div>
-          <button class="toolbar-icon-btn" onclick={handleOpenImage} title={lang === 'zh' ? '插入图片' : 'Insert image'}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="16" rx="2" ry="2"></rect>
-              <circle cx="8.5" cy="9.5" r="1.5"></circle>
-              <path d="M21 15l-5-5L5 20"></path>
-            </svg>
-            {lang === 'zh' ? '图片' : 'Image'}
-          </button>
-        </div>
-        <div class="editor-toolbar-right">
-        </div>
-      </div>
-      {#if editorMode === 'wysiwyg'}
-        <WysiwygEditor
-          bind:this={wysiwygEditor}
-          bind:markdown
-          placeholder={t('placeholder')}
-          imageUpload={saveLocalImage}
-          resolveImageUrl={resolveImageUrl}
-        />
-      {:else}
-        <MarkdownEditor bind:this={markdownEditor} bind:markdown placeholder={t('placeholder')} />
-      {/if}
-      {#if errorMessage}
-        <div class="error-bar">{errorMessage}</div>
-      {/if}
-      <div class="drop-hint">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-        {lang === 'zh'
-          ? '拖入 .md / .txt 导入，或拖拽 / 粘贴图片插入'
-          : 'Drop .md / .txt to import, or drag / paste images to insert'}
-      </div>
+      <EditorPane
+        bind:this={editorPane}
+        bind:markdown
+        {lang}
+        placeholder={t('placeholder')}
+        cardMode
+        {errorMessage}
+        pageBreakToken={PAGEBREAK_TOKEN}
+        pageBreakLabel={{ zh: '分页', en: 'Break' }}
+        pageBreakTitle={{ zh: '插入分页', en: 'Insert page break' }}
+        {imageAssets}
+        onImageSaved={handleImageSaved}
+      />
     </section>
 
     <!-- Resizer -->
@@ -1149,18 +996,6 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
 
   .drop-overlay {
@@ -1323,99 +1158,6 @@
   .editor-pane {
     background: var(--editor-bg);
     position: relative;
-  }
-
-  .editor-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px;
-    background: var(--color-gray-50, #f9fafb);
-    border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
-    flex-shrink: 0;
-    gap: 6px;
-  }
-
-  .editor-toolbar-left,
-  .editor-toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .editor-mode-toggle {
-    display: flex;
-    background: var(--color-gray-200, #e5e7eb);
-    border-radius: var(--radius-sm, 4px);
-    padding: 1px;
-    gap: 1px;
-  }
-
-  .mode-toggle-btn {
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 3px 10px;
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
-    color: var(--color-gray-500, #6b7280);
-    background: transparent;
-    transition: all 0.15s;
-  }
-
-  .mode-toggle-btn.active {
-    background: var(--color-white, #fff);
-    color: var(--color-gray-900, #111);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-  }
-
-  .toolbar-divider {
-    width: 1px;
-    height: 18px;
-    background: var(--color-gray-200, #e5e7eb);
-  }
-
-  .toolbar-icon-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 8px;
-    border: 1px solid var(--color-gray-200, #e5e7eb);
-    border-radius: var(--radius-sm, 4px);
-    background: var(--color-white, #fff);
-    color: var(--color-gray-600, #4b5563);
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .toolbar-icon-btn:hover {
-    background: var(--color-gray-100, #f3f4f6);
-    border-color: var(--color-gray-300, #d1d5db);
-    color: var(--color-gray-900, #111827);
-  }
-
-
-  .error-bar {
-    padding: var(--space-sm) var(--space-md);
-    font-size: 0.75rem;
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
-    border-top: 1px solid rgba(239, 68, 68, 0.2);
-  }
-
-  .drop-hint {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 6px;
-    font-size: 0.6875rem;
-    color: var(--color-gray-400, #9ca3af);
-    border-top: 1px solid var(--color-gray-100, #f3f4f6);
-    background: var(--color-gray-50, #f9fafb);
-    flex-shrink: 0;
   }
 
   /* Resizer */
