@@ -59,7 +59,13 @@
 
   function markdownValueFromEditor(md: string): string {
     // Milkdown may serialize thematic breaks as *** — normalize to ---
-    const normalized = md.replace(/^[ \t]*\*\*\*$/gm, '---')
+    let normalized = md.replace(/^[ \t]*\*\*\*$/gm, '---')
+    // mdast-util-to-markdown escapes [ and ] in phrasing content to prevent
+    // ambiguity with links/references. This breaks our bracket-based tokens
+    // like [toc] and [[pagebreak]]. Remove all such escaping — the remark
+    // parser handles unescaped brackets correctly (treats them as text if
+    // no matching definition exists).
+    normalized = normalized.replace(/\\([\[\]])/g, '$1')
     if (!cardMode) {
       return currentFrontmatter + normalized
     }
