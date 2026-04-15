@@ -14,6 +14,7 @@
   import CardGallery from '$lib/components/CardGallery.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { SLIDES_TEMPLATES } from '$lib/templates/slides-templates'
+  import { PAGEBREAK_TOKEN } from '$lib/pagebreak'
   import {
     documentStore,
     isBrokenTemplateDocument,
@@ -149,7 +150,7 @@
       loading: '正在初始化渲染引擎...',
       generating: '生成中...',
       langSwitch: 'EN',
-      placeholder: '在这里输入 Markdown，用 --- 分隔幻灯片...',
+      placeholder: '在这里输入 Markdown，用 [[pagebreak]] 分隔幻灯片...',
     },
     en: {
       template: 'Template',
@@ -157,7 +158,7 @@
       loading: 'Initializing rendering engine...',
       generating: 'Generating...',
       langSwitch: '中',
-      placeholder: 'Type Markdown here, use --- to separate slides...',
+      placeholder: 'Type Markdown here, use [[pagebreak]] to separate slides...',
     },
   }
 
@@ -735,7 +736,7 @@
         placeholder={t('placeholder')}
         cardMode
         {errorMessage}
-        pageBreakToken="---"
+        pageBreakToken={PAGEBREAK_TOKEN}
         pageBreakLabel={{ zh: '新页', en: 'New Slide' }}
         pageBreakTitle={{ zh: '插入新幻灯片', en: 'Insert new slide' }}
         {imageAssets}
