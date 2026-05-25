@@ -6,11 +6,15 @@ export default defineConfig({
 	plugins: [
 		sveltekit(),
 		SvelteKitPWA({
+			buildBase: '/',
+			scope: '/',
 			registerType: 'autoUpdate',
 			manifest: {
 				name: 'MDXport',
 				short_name: 'MDXport',
 				description: 'Markdown to PDF Professional Export Tool',
+				start_url: '/',
+				scope: '/',
 				theme_color: '#ffffff',
 				icons: [
 					{
