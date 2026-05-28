@@ -1,10 +1,16 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import StatusHint from '$lib/components/StatusHint.svelte'
+  import PreviewLoadingPlaceholder from '$lib/components/PreviewLoadingPlaceholder.svelte'
+  import {
+    resolvePreviewLoadingPhase,
+    type PreviewCompilePhase,
+  } from '$lib/typst/compilePhases'
 
   interface Props {
     pageSvgs?: string[] | null
     status: 'idle' | 'compiling' | 'done' | 'error'
+    compilePhase?: PreviewCompilePhase
     filename: string
     lang: 'zh' | 'en'
     columns?: number
@@ -13,7 +19,17 @@
     thumbWidth?: number
   }
 
-  let { pageSvgs = null, status, filename, lang, columns = 0, aspectRatio = '3 / 4', fullResWidth = 1242, thumbWidth = 400 }: Props = $props()
+  let {
+    pageSvgs = null,
+    status,
+    compilePhase = 'idle',
+    filename,
+    lang,
+    columns = 0,
+    aspectRatio = '3 / 4',
+    fullResWidth = 1242,
+    thumbWidth = 400,
+  }: Props = $props()
 
   interface CardItem {
     pageNum: number
@@ -22,6 +38,7 @@
     hash: string
   }
 
+  let loadingPhase = $derived(resolvePreviewLoadingPhase(status, compilePhase))
   let cards = $state<CardItem[]>([])
   let rendering = $state(false)
   let activeRenderPage = $state<number | null>(null)
@@ -228,8 +245,7 @@
 <div class="card-gallery">
   {#if cards.length === 0 && (rendering || status === 'compiling' || !hasEverReceived)}
     <div class="card-gallery-placeholder">
-      <div class="card-spinner"></div>
-      <span>{lang === 'zh' ? '正在生成卡片...' : 'Generating cards...'}</span>
+      <PreviewLoadingPlaceholder phase={loadingPhase} {lang} />
     </div>
   {:else if cards.length === 0}
     <div class="card-gallery-placeholder">

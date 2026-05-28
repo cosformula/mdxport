@@ -2,6 +2,7 @@
 
 import { createTypstCompiler, loadFonts, type TypstCompiler } from '@myriaddreamin/typst.ts';
 import typstCompilerWasmUrl from '@myriaddreamin/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm?url';
+import type { WorkerCompilePhase } from '../typst/compilePhases';
 import modernTechTyp from '../typst/styles/modern-tech.typ?raw';
 import classicEditorialTyp from '../typst/styles/classic-editorial.typ?raw';
 import redbookKnowledgeTyp from '../typst/styles/redbook-knowledge.typ?raw';
@@ -15,6 +16,12 @@ import redbookTypographyTyp from '../typst/styles/redbook-typography.typ?raw';
 import slidesModernTyp from '../typst/styles/slides-modern.typ?raw';
 import slidesDarkTyp from '../typst/styles/slides-dark.typ?raw';
 import slidesMinimalTyp from '../typst/styles/slides-minimal.typ?raw';
+
+type CompileStatusMessage = {
+	type: 'compile-status';
+	id: string;
+	phase: WorkerCompilePhase;
+};
 
 type CompileRequest = {
 	type: 'compile';
@@ -79,7 +86,32 @@ const EMOJI_FONTS: string[] = [
 let cjkLoaded = false;
 let emojiLoaded = false;
 
-async function upgradeCompiler(needCjk: boolean, needEmoji: boolean) {
+function postStatus(compileId: string | undefined, phase: WorkerCompilePhase) {
+	if (!compileId) return;
+	ctx.postMessage({ type: 'compile-status', id: compileId, phase } satisfies CompileStatusMessage);
+}
+
+async function postStatusAndYield(compileId: string | undefined, phase: WorkerCompilePhase) {
+	postStatus(compileId, phase);
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+async function reportFontLoadingPhases(
+	compileId: string | undefined,
+	opts: { includeCore: boolean; includeCjk: boolean; includeEmoji: boolean },
+) {
+	if (opts.includeCore) {
+		await postStatusAndYield(compileId, 'fonts-core');
+	}
+	if (opts.includeCjk) {
+		await postStatusAndYield(compileId, 'fonts-cjk');
+	}
+	if (opts.includeEmoji) {
+		await postStatusAndYield(compileId, 'fonts-emoji');
+	}
+}
+
+async function upgradeCompiler(needCjk: boolean, needEmoji: boolean, compileId?: string) {
 	// Check if we need to upgrade
 	const shouldUpgradeCjk = needCjk && !cjkLoaded;
 	const shouldUpgradeEmoji = needEmoji && !emojiLoaded;
@@ -90,7 +122,14 @@ async function upgradeCompiler(needCjk: boolean, needEmoji: boolean) {
 	if (shouldUpgradeEmoji) emojiLoaded = true;
 
 	console.log(`MDXport - Upgrading compiler (CJK: ${cjkLoaded}, Emoji: ${emojiLoaded})...`);
-	
+
+	await postStatusAndYield(compileId, 'compiler-init');
+	await reportFontLoadingPhases(compileId, {
+		includeCore: true,
+		includeCjk: shouldUpgradeCjk,
+		includeEmoji: shouldUpgradeEmoji,
+	});
+
 	const fontsToLoad = [...CORE_FONTS];
 	if (cjkLoaded) fontsToLoad.push(...CJK_FONTS);
 	if (emojiLoaded) fontsToLoad.push(...EMOJI_FONTS);
@@ -123,10 +162,17 @@ async function upgradeCompiler(needCjk: boolean, needEmoji: boolean) {
 	console.log('MDXport - Compiler upgraded successfully.');
 }
 
-function getCompiler(): Promise<TypstCompiler> {
+function getCompiler(compileId?: string): Promise<TypstCompiler> {
 	if (compilerPromise) return compilerPromise;
 
 	compilerPromise = (async () => {
+		await postStatusAndYield(compileId, 'compiler-init');
+		await reportFontLoadingPhases(compileId, {
+			includeCore: true,
+			includeCjk: false,
+			includeEmoji: false,
+		});
+
 		const compiler = createTypstCompiler();
 		await compiler.init({
 			getModule: () => typstCompilerWasmUrl,
@@ -158,7 +204,8 @@ function getCompiler(): Promise<TypstCompiler> {
 async function compileTypst(
 	mainTypst: string,
 	images: Record<string, Uint8Array<ArrayBuffer>> = {},
-	format: 'pdf' | 'vector' = 'pdf'
+	format: 'pdf' | 'vector' = 'pdf',
+	compileId?: string
 ): Promise<{ result: Uint8Array; diagnostics: string[] }> {
 	// Check for special characters
 	const hasCjk = /[\u4e00-\u9fa5]/.test(mainTypst);
@@ -166,15 +213,17 @@ async function compileTypst(
 	const hasEmoji = /[\u{1F000}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(mainTypst);
 	
 	if (hasCjk || hasEmoji) {
-		await upgradeCompiler(hasCjk, hasEmoji);
+		await upgradeCompiler(hasCjk, hasEmoji, compileId);
 	}
 
-	const compiler = await getCompiler();
+	const compiler = await getCompiler(compileId);
 	compiler.addSource('/main.typ', mainTypst);
 
 	for (const [path, data] of Object.entries(images)) {
 		compiler.mapShadow('/' + path, data);
 	}
+
+	postStatus(compileId, 'compile');
 
 	const compileResult = await compiler.compile({
 		mainFilePath: '/main.typ',
@@ -197,7 +246,12 @@ ctx.onmessage = (event: MessageEvent<CompileRequest>) => {
 	const fmt = message.format || 'pdf';
 	compileQueue = compileQueue.then(async () => {
 		try {
-			const { result, diagnostics } = await compileTypst(message.mainTypst, message.images, fmt);
+			const { result, diagnostics } = await compileTypst(
+				message.mainTypst,
+				message.images,
+				fmt,
+				message.id
+			);
 			const copy = new Uint8Array(result.length);
 			copy.set(result);
 			const response: CompileResponse = fmt === 'pdf'

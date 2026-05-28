@@ -21,6 +21,14 @@
     isLegacyImplicitBlankDocument,
   } from '$lib/stores/documentStore.svelte'
   import type { SavedDocument, SavedDocumentAsset } from '$lib/storage/documents'
+  import type { PreviewCompilePhase } from '$lib/typst/compilePhases'
+  import {
+    anticipateFontPhase,
+    createCompilePhaseHandler,
+    detectDocumentFeatures,
+    getInitialCompilePhase,
+    matchMermaidBlocks,
+  } from '$lib/typst/compilePhases'
 
   // Props
   interface Props {
@@ -68,6 +76,7 @@
 
   // Compilation state
   let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
+  let compilePhase = $state<PreviewCompilePhase>('idle')
   let errorMessage: string | null = $state(null)
   let pageSvgs = $state<string[] | null>(null)
 
@@ -303,12 +312,16 @@
     status = 'compiling'
     errorMessage = null
 
+    const docFeatures = detectDocumentFeatures(md)
+    const mermaidMatches = matchMermaidBlocks(md)
+    compilePhase = getInitialCompilePhase(docFeatures)
+    let reportCompilePhases = true
+
     try {
       let processedMd = md
       const images: Record<string, Uint8Array> = {}
 
-      const mermaidRegex = /```mermaid\n([\s\S]*?)\n```/g
-      const matches = [...md.matchAll(mermaidRegex)]
+      const matches = mermaidMatches
 
       if (matches.length > 0) {
         let lastIndex = 0
@@ -341,6 +354,8 @@
 
       Object.assign(images, collectReferencedImageAssets(processedMd))
 
+      compilePhase = anticipateFontPhase(docFeatures)
+
       // Cache full-document Typst for PDF export (with preprocessed mermaid + images)
       lastCompiledFullTypst = markdownToTypst(processedMd, {
         style: nextStyle,
@@ -367,7 +382,14 @@
         if (!imagesChanged && typstPages[i] === cachedTypstSources[i] && svgs[i]) continue
 
         // @ts-ignore
-        const { vector } = await client.compileVector(typstPages[i], images)
+        const { vector } = await client.compileVector(typstPages[i], images, reportCompilePhases
+          ? {
+              onPhase: createCompilePhaseHandler(seq, () => compileSeq, (phase) => {
+                compilePhase = phase
+              }),
+            }
+          : {})
+        reportCompilePhases = false
         await renderer.runWithSession(
           { format: 'vector' as const, artifactContent: vector },
           async (session) => {
@@ -383,9 +405,11 @@
       cachedImagesFingerprint = imagesFingerprint
       pageSvgs = [...svgs]
       status = 'done'
+      compilePhase = 'idle'
     } catch (error) {
       if (seq !== compileSeq) return
       status = 'error'
+      compilePhase = 'idle'
       errorMessage = error instanceof Error ? error.message : String(error)
     }
   }
@@ -812,7 +836,7 @@
           </button>
         </div>
       </div>
-      <CardGallery {pageSvgs} {status} {filename} {lang} columns={1} aspectRatio="16 / 9" fullResWidth={1920} thumbWidth={800} />
+      <CardGallery {pageSvgs} {status} {compilePhase} {filename} {lang} columns={1} aspectRatio="16 / 9" fullResWidth={1920} thumbWidth={800} />
     </section>
   </main>
 </div>

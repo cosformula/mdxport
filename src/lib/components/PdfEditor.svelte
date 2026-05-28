@@ -15,6 +15,7 @@
   import type { RegisterSWOptions } from 'virtual:pwa-register/svelte'
 
   import StatusHint from '$lib/components/StatusHint.svelte'
+  import PreviewLoadingPlaceholder from '$lib/components/PreviewLoadingPlaceholder.svelte'
   import EditorPane from '$lib/components/EditorPane.svelte'
   import DocumentMenu from '$lib/components/DocumentMenu.svelte'
   import { PDF_TEMPLATES } from '$lib/templates/pdf-templates'
@@ -24,6 +25,15 @@
     isLegacyImplicitBlankDocument,
   } from '$lib/stores/documentStore.svelte'
 
+  import type { PreviewCompilePhase } from '$lib/typst/compilePhases'
+  import {
+    anticipateFontPhase,
+    createCompilePhaseHandler,
+    detectDocumentFeatures,
+    getInitialCompilePhase,
+    matchMermaidBlocks,
+    resolvePreviewLoadingPhase,
+  } from '$lib/typst/compilePhases'
   import type { SavedDocument } from '$lib/storage/documents'
 
   // Props
@@ -189,6 +199,8 @@
   // Compilation state
   let status: 'idle' | 'compiling' | 'done' | 'error' = $state('idle')
   let errorMessage: string | null = $state(null)
+  let compilePhase = $state<PreviewCompilePhase>('idle')
+  let previewLoadingPhase = $derived(resolvePreviewLoadingPhase(status, compilePhase))
   // Loading state
   let isLoading = $state(true)
   let loadingText = $state('Initializing...')
@@ -445,13 +457,16 @@
     status = 'compiling'
     errorMessage = null
 
+    const docFeatures = detectDocumentFeatures(md)
+    const mermaidMatches = matchMermaidBlocks(md)
+    compilePhase = getInitialCompilePhase(docFeatures)
+
     try {
       // Pre-process Mermaid blocks
       let processedMd = md
       const images: Record<string, Uint8Array> = {}
 
-      const mermaidRegex = /```mermaid\n([\s\S]*?)\n```/g
-      const matches = [...md.matchAll(mermaidRegex)]
+      const matches = mermaidMatches
 
       if (matches.length > 0) {
         let lastIndex = 0
@@ -484,6 +499,8 @@
 
       Object.assign(images, collectReferencedImageAssets(processedMd))
 
+      compilePhase = anticipateFontPhase(docFeatures)
+
       const mainTypst = markdownToTypst(processedMd, {
         style: nextStyle,
         lang: docLang,
@@ -493,13 +510,19 @@
       lastCompiledImages = images
 
       // @ts-ignore
-      const vectorData = await client.compileVector(mainTypst, images)
+      const vectorData = await client.compileVector(mainTypst, images, {
+        onPhase: createCompilePhaseHandler(seq, () => compileSeq, (phase) => {
+          compilePhase = phase
+        }),
+      })
       if (seq !== compileSeq) return
       vectorBytes = vectorData.vector
       status = 'done'
+      compilePhase = 'idle'
     } catch (error) {
       if (seq !== compileSeq) return
       status = 'error'
+      compilePhase = 'idle'
       errorMessage = error instanceof Error ? error.message : String(error)
     }
   }
@@ -974,7 +997,7 @@
         ></div>
         {#if status === 'compiling' && !vectorBytes}
           <div class="preview-placeholder">
-            <div class="loading-spinner"></div>
+            <PreviewLoadingPlaceholder phase={previewLoadingPhase} {lang} />
           </div>
         {/if}
       </div>
